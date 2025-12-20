@@ -188,8 +188,8 @@ const (
 	BatchStatusProcessing BatchStatus = "processing"
 	// BatchStatusCompleted means the batch has been completed.
 	BatchStatusCompleted BatchStatus = "completed"
-	// BatchStatusPartiallyCompleted means some messages failed.
-	BatchStatusPartiallyCompleted BatchStatus = "partially_completed"
+	// BatchStatusPartialFailure means some messages in the batch failed.
+	BatchStatusPartialFailure BatchStatus = "partial_failure"
 	// BatchStatusFailed means the batch failed.
 	BatchStatusFailed BatchStatus = "failed"
 )
