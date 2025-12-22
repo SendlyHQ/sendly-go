@@ -12,6 +12,8 @@ type Message struct {
 	Text string `json:"text"`
 	// Status is the delivery status.
 	Status MessageStatus `json:"status"`
+	// Direction is the message direction (outbound or inbound).
+	Direction string `json:"direction,omitempty"`
 	// Error contains error message if delivery failed.
 	Error *string `json:"error,omitempty"`
 	// Segments is the number of SMS segments.
@@ -20,6 +22,14 @@ type Message struct {
 	CreditsUsed int `json:"creditsUsed,omitempty"`
 	// IsSandbox indicates if the message was sent in sandbox mode.
 	IsSandbox bool `json:"isSandbox,omitempty"`
+	// SenderType indicates how the message was sent (number_pool, alphanumeric, sandbox).
+	SenderType string `json:"senderType,omitempty"`
+	// TelnyxMessageID is the Telnyx message ID for tracking.
+	TelnyxMessageID *string `json:"telnyxMessageId,omitempty"`
+	// Warning contains a warning message (e.g., when 'from' is ignored).
+	Warning *string `json:"warning,omitempty"`
+	// SenderNote contains a note about sender behavior.
+	SenderNote *string `json:"senderNote,omitempty"`
 	// CreatedAt is when the message was created.
 	CreatedAt string `json:"createdAt,omitempty"`
 	// DeliveredAt is when the message was delivered (if applicable).
@@ -32,14 +42,24 @@ type MessageStatus string
 const (
 	// MessageStatusQueued means the message is queued for delivery.
 	MessageStatusQueued MessageStatus = "queued"
-	// MessageStatusSending means the message is being sent.
-	MessageStatusSending MessageStatus = "sending"
 	// MessageStatusSent means the message was sent to the carrier.
 	MessageStatusSent MessageStatus = "sent"
 	// MessageStatusDelivered means the message was delivered.
 	MessageStatusDelivered MessageStatus = "delivered"
 	// MessageStatusFailed means the message failed to deliver.
 	MessageStatusFailed MessageStatus = "failed"
+)
+
+// SenderType indicates how a message was sent.
+type SenderType string
+
+const (
+	// SenderTypeNumberPool means sent from toll-free number pool.
+	SenderTypeNumberPool SenderType = "number_pool"
+	// SenderTypeAlphanumeric means sent with alphanumeric sender ID.
+	SenderTypeAlphanumeric SenderType = "alphanumeric"
+	// SenderTypeSandbox means sent in sandbox/test mode.
+	SenderTypeSandbox SenderType = "sandbox"
 )
 
 // SendMessageRequest is the request to send a message.
@@ -246,4 +266,233 @@ type ListBatchesResponse struct {
 	Data []BatchMessageResponse `json:"data"`
 	// Count is the total number of batches.
 	Count int `json:"count"`
+}
+
+// ============================================================================
+// Webhooks
+// ============================================================================
+
+// CircuitState represents the circuit breaker state.
+type CircuitState string
+
+const (
+	CircuitStateClosed   CircuitState = "closed"
+	CircuitStateOpen     CircuitState = "open"
+	CircuitStateHalfOpen CircuitState = "half_open"
+)
+
+// DeliveryStatus represents the webhook delivery status.
+type DeliveryStatus string
+
+const (
+	DeliveryStatusPending   DeliveryStatus = "pending"
+	DeliveryStatusDelivered DeliveryStatus = "delivered"
+	DeliveryStatusFailed    DeliveryStatus = "failed"
+	DeliveryStatusCancelled DeliveryStatus = "cancelled"
+)
+
+// Webhook represents a configured webhook endpoint.
+type Webhook struct {
+	// ID is the unique webhook identifier (whk_xxx).
+	ID string `json:"id"`
+	// URL is the HTTPS endpoint URL.
+	URL string `json:"url"`
+	// Events is the list of subscribed event types.
+	Events []string `json:"events"`
+	// Description is an optional description.
+	Description *string `json:"description,omitempty"`
+	// IsActive indicates whether the webhook is active.
+	IsActive bool `json:"isActive"`
+	// FailureCount is the number of consecutive failures.
+	FailureCount int `json:"failureCount"`
+	// LastFailureAt is when the last failure occurred.
+	LastFailureAt *string `json:"lastFailureAt,omitempty"`
+	// CircuitState is the circuit breaker state.
+	CircuitState CircuitState `json:"circuitState"`
+	// CircuitOpenedAt is when the circuit was opened.
+	CircuitOpenedAt *string `json:"circuitOpenedAt,omitempty"`
+	// APIVersion is the API version for payloads.
+	APIVersion string `json:"apiVersion"`
+	// Metadata is custom metadata.
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	// CreatedAt is when the webhook was created.
+	CreatedAt string `json:"createdAt"`
+	// UpdatedAt is when the webhook was last updated.
+	UpdatedAt string `json:"updatedAt"`
+	// TotalDeliveries is the total number of delivery attempts.
+	TotalDeliveries int `json:"totalDeliveries"`
+	// SuccessfulDeliveries is the number of successful deliveries.
+	SuccessfulDeliveries int `json:"successfulDeliveries"`
+	// SuccessRate is the success rate (0-100).
+	SuccessRate float64 `json:"successRate"`
+	// LastDeliveryAt is when the last successful delivery occurred.
+	LastDeliveryAt *string `json:"lastDeliveryAt,omitempty"`
+}
+
+// WebhookCreatedResponse is returned when creating a webhook.
+type WebhookCreatedResponse struct {
+	Webhook
+	// Secret is the webhook signing secret (only shown once!).
+	Secret string `json:"secret"`
+}
+
+// CreateWebhookRequest is the request to create a webhook.
+type CreateWebhookRequest struct {
+	// URL is the HTTPS endpoint URL (required).
+	URL string `json:"url"`
+	// Events is the list of event types to subscribe to (required).
+	Events []string `json:"events"`
+	// Description is an optional description.
+	Description string `json:"description,omitempty"`
+	// Metadata is optional custom metadata.
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// UpdateWebhookRequest is the request to update a webhook.
+type UpdateWebhookRequest struct {
+	// URL is the new URL.
+	URL *string `json:"url,omitempty"`
+	// Events is the new event subscriptions.
+	Events []string `json:"events,omitempty"`
+	// Description is the new description.
+	Description *string `json:"description,omitempty"`
+	// IsActive enables/disables the webhook.
+	IsActive *bool `json:"is_active,omitempty"`
+	// Metadata is the new custom metadata.
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// WebhookDelivery represents a webhook delivery attempt.
+type WebhookDelivery struct {
+	// ID is the unique delivery identifier (del_xxx).
+	ID string `json:"id"`
+	// WebhookID is the webhook ID.
+	WebhookID string `json:"webhookId"`
+	// EventID is the event ID for idempotency.
+	EventID string `json:"eventId"`
+	// EventType is the event type.
+	EventType string `json:"eventType"`
+	// AttemptNumber is the attempt number (1-6).
+	AttemptNumber int `json:"attemptNumber"`
+	// MaxAttempts is the maximum number of attempts.
+	MaxAttempts int `json:"maxAttempts"`
+	// Status is the delivery status.
+	Status DeliveryStatus `json:"status"`
+	// ResponseStatusCode is the HTTP response status code.
+	ResponseStatusCode *int `json:"responseStatusCode,omitempty"`
+	// ResponseTimeMs is the response time in milliseconds.
+	ResponseTimeMs *int `json:"responseTimeMs,omitempty"`
+	// ErrorMessage is the error message if failed.
+	ErrorMessage *string `json:"errorMessage,omitempty"`
+	// ErrorCode is the error code if failed.
+	ErrorCode *string `json:"errorCode,omitempty"`
+	// NextRetryAt is when the next retry will occur.
+	NextRetryAt *string `json:"nextRetryAt,omitempty"`
+	// CreatedAt is when the delivery was created.
+	CreatedAt string `json:"createdAt"`
+	// DeliveredAt is when the delivery succeeded.
+	DeliveredAt *string `json:"deliveredAt,omitempty"`
+}
+
+// WebhookTestResult is the result of testing a webhook.
+type WebhookTestResult struct {
+	// Success indicates whether the test was successful.
+	Success bool `json:"success"`
+	// StatusCode is the HTTP response status code.
+	StatusCode *int `json:"statusCode,omitempty"`
+	// ResponseTimeMs is the response time in milliseconds.
+	ResponseTimeMs *int `json:"responseTimeMs,omitempty"`
+	// Error is the error message if failed.
+	Error *string `json:"error,omitempty"`
+}
+
+// WebhookSecretRotation is the response from rotating a webhook secret.
+type WebhookSecretRotation struct {
+	// Webhook is the updated webhook.
+	Webhook Webhook `json:"webhook"`
+	// NewSecret is the new signing secret.
+	NewSecret string `json:"newSecret"`
+	// OldSecretExpiresAt is when the old secret expires.
+	OldSecretExpiresAt string `json:"oldSecretExpiresAt"`
+	// Message is information about the grace period.
+	Message string `json:"message"`
+}
+
+// ============================================================================
+// Account & Credits
+// ============================================================================
+
+// Account represents account information.
+type Account struct {
+	// ID is the user ID.
+	ID string `json:"id"`
+	// Email is the email address.
+	Email string `json:"email"`
+	// Name is the display name.
+	Name *string `json:"name,omitempty"`
+	// CreatedAt is when the account was created.
+	CreatedAt string `json:"createdAt"`
+}
+
+// Credits represents credit balance information.
+type Credits struct {
+	// Balance is the available credit balance.
+	Balance int `json:"balance"`
+	// ReservedBalance is credits reserved for scheduled messages.
+	ReservedBalance int `json:"reservedBalance"`
+	// AvailableBalance is the total usable credits.
+	AvailableBalance int `json:"availableBalance"`
+}
+
+// TransactionType represents a credit transaction type.
+type TransactionType string
+
+const (
+	TransactionTypePurchase   TransactionType = "purchase"
+	TransactionTypeUsage      TransactionType = "usage"
+	TransactionTypeRefund     TransactionType = "refund"
+	TransactionTypeAdjustment TransactionType = "adjustment"
+	TransactionTypeBonus      TransactionType = "bonus"
+)
+
+// CreditTransaction represents a credit transaction record.
+type CreditTransaction struct {
+	// ID is the transaction ID.
+	ID string `json:"id"`
+	// Type is the transaction type.
+	Type TransactionType `json:"type"`
+	// Amount is the amount (positive for in, negative for out).
+	Amount int `json:"amount"`
+	// BalanceAfter is the balance after the transaction.
+	BalanceAfter int `json:"balanceAfter"`
+	// Description is the transaction description.
+	Description string `json:"description"`
+	// MessageID is the related message ID (for usage transactions).
+	MessageID *string `json:"messageId,omitempty"`
+	// CreatedAt is when the transaction occurred.
+	CreatedAt string `json:"createdAt"`
+}
+
+// APIKey represents an API key.
+type APIKey struct {
+	// ID is the key ID.
+	ID string `json:"id"`
+	// Name is the key name/label.
+	Name string `json:"name"`
+	// Type is the key type (test or live).
+	Type string `json:"type"`
+	// Prefix is the key prefix for identification.
+	Prefix string `json:"prefix"`
+	// LastFour is the last 4 characters of the key.
+	LastFour string `json:"lastFour"`
+	// Permissions is the list of permissions granted.
+	Permissions []string `json:"permissions"`
+	// CreatedAt is when the key was created.
+	CreatedAt string `json:"createdAt"`
+	// LastUsedAt is when the key was last used.
+	LastUsedAt *string `json:"lastUsedAt,omitempty"`
+	// ExpiresAt is when the key expires.
+	ExpiresAt *string `json:"expiresAt,omitempty"`
+	// IsRevoked indicates whether the key is revoked.
+	IsRevoked bool `json:"isRevoked"`
 }

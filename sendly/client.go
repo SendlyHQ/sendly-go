@@ -40,6 +40,10 @@ type Client struct {
 
 	// Messages provides access to message operations.
 	Messages *MessagesService
+	// WebhooksService provides access to webhook management operations.
+	WebhooksService *WebhooksService
+	// Account provides access to account operations.
+	Account *AccountService
 
 	rateLimiter *rate.Limiter
 }
@@ -101,6 +105,8 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 	}
 
 	c.Messages = &MessagesService{client: c}
+	c.WebhooksService = &WebhooksService{client: c}
+	c.Account = &AccountService{client: c}
 
 	return c
 }
