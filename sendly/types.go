@@ -272,6 +272,18 @@ type ListBatchesResponse struct {
 // Webhooks
 // ============================================================================
 
+// WebhookMode represents the webhook event mode filter.
+type WebhookMode string
+
+const (
+	// WebhookModeAll receives both test and live events.
+	WebhookModeAll WebhookMode = "all"
+	// WebhookModeTest receives only sandbox/test events.
+	WebhookModeTest WebhookMode = "test"
+	// WebhookModeLive receives only production events (requires verification).
+	WebhookModeLive WebhookMode = "live"
+)
+
 // CircuitState represents the circuit breaker state.
 type CircuitState string
 
@@ -301,6 +313,8 @@ type Webhook struct {
 	Events []string `json:"events"`
 	// Description is an optional description.
 	Description *string `json:"description,omitempty"`
+	// Mode is the event mode filter (all, test, live).
+	Mode WebhookMode `json:"mode"`
 	// IsActive indicates whether the webhook is active.
 	IsActive bool `json:"isActive"`
 	// FailureCount is the number of consecutive failures.
@@ -344,6 +358,8 @@ type CreateWebhookRequest struct {
 	Events []string `json:"events"`
 	// Description is an optional description.
 	Description string `json:"description,omitempty"`
+	// Mode is the event mode filter (all, test, live). Live requires verification.
+	Mode WebhookMode `json:"mode,omitempty"`
 	// Metadata is optional custom metadata.
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
@@ -358,6 +374,8 @@ type UpdateWebhookRequest struct {
 	Description *string `json:"description,omitempty"`
 	// IsActive enables/disables the webhook.
 	IsActive *bool `json:"is_active,omitempty"`
+	// Mode is the event mode filter (all, test, live).
+	Mode *WebhookMode `json:"mode,omitempty"`
 	// Metadata is the new custom metadata.
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }

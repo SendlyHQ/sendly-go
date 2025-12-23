@@ -18,6 +18,7 @@ type webhookAPIResponse struct {
 	URL                  string                 `json:"url"`
 	Events               []string               `json:"events"`
 	Description          *string                `json:"description,omitempty"`
+	Mode                 string                 `json:"mode"`
 	IsActive             bool                   `json:"is_active"`
 	FailureCount         int                    `json:"failure_count"`
 	LastFailureAt        *string                `json:"last_failure_at,omitempty"`
@@ -54,11 +55,16 @@ type webhookDeliveryAPIResponse struct {
 
 // transformWebhook converts API response to SDK type.
 func transformWebhook(api webhookAPIResponse) Webhook {
+	mode := WebhookMode(api.Mode)
+	if mode == "" {
+		mode = WebhookModeAll
+	}
 	return Webhook{
 		ID:                   api.ID,
 		URL:                  api.URL,
 		Events:               api.Events,
 		Description:          api.Description,
+		Mode:                 mode,
 		IsActive:             api.IsActive,
 		FailureCount:         api.FailureCount,
 		LastFailureAt:        api.LastFailureAt,
