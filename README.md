@@ -73,7 +73,7 @@ import (
 
 // Create client with options
 client := sendly.NewClient("sk_live_v1_xxx",
-    sendly.WithBaseURL("https://api.sendly.live/v1"),
+    sendly.WithBaseURL("https://sendly.live/api/v1"),
     sendly.WithTimeout(60*time.Second),
     sendly.WithMaxRetries(5),
     sendly.WithDebug(true),
