@@ -5,7 +5,7 @@ Official Go SDK for the Sendly SMS API.
 ## Installation
 
 ```bash
-go get github.com/sendly-live/sendly-go
+go get github.com/SendlyHQ/sendly-go
 ```
 
 ## Quick Start
@@ -18,7 +18,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/sendly-live/sendly-go/sendly"
+    "github.com/SendlyHQ/sendly-go/sendly"
 )
 
 func main() {
@@ -68,7 +68,7 @@ Before sending live SMS messages, you need:
 ```go
 import (
     "time"
-    "github.com/sendly-live/sendly-go/sendly"
+    "github.com/SendlyHQ/sendly-go/sendly"
 )
 
 // Create client with options
