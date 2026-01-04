@@ -1,3 +1,12 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/SendlyHQ/sendly-go/main/.github/header.svg" alt="Sendly Go SDK" />
+</p>
+
+<p align="center">
+  <a href="https://pkg.go.dev/github.com/SendlyHQ/sendly-go"><img src="https://pkg.go.dev/badge/github.com/SendlyHQ/sendly-go.svg" alt="Go Reference" /></a>
+  <a href="https://github.com/SendlyHQ/sendly-go/blob/main/LICENSE"><img src="https://img.shields.io/github/license/SendlyHQ/sendly-go?style=flat-square" alt="license" /></a>
+</p>
+
 # Sendly Go SDK
 
 Official Go SDK for the Sendly SMS API.
