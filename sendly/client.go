@@ -20,7 +20,7 @@ const (
 	// DefaultTimeout is the default HTTP client timeout.
 	DefaultTimeout = 30 * time.Second
 	// Version is the SDK version.
-	Version = "3.8.2"
+	Version = "3.9.0"
 )
 
 // Client is the Sendly API client.
@@ -44,6 +44,10 @@ type Client struct {
 	WebhooksService *WebhooksService
 	// Account provides access to account operations.
 	Account *AccountService
+	// Verify provides access to OTP verification operations.
+	Verify *VerifyService
+	// Templates provides access to SMS template management.
+	Templates *TemplatesService
 
 	rateLimiter *rate.Limiter
 }
@@ -107,6 +111,8 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 	c.Messages = &MessagesService{client: c}
 	c.WebhooksService = &WebhooksService{client: c}
 	c.Account = &AccountService{client: c}
+	c.Verify = &VerifyService{client: c}
+	c.Templates = &TemplatesService{client: c}
 
 	return c
 }
