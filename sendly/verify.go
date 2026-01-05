@@ -89,6 +89,16 @@ func (s *VerifyService) Send(ctx context.Context, req *SendVerificationRequest) 
 	return &resp, nil
 }
 
+// Resend resends an OTP verification code.
+func (s *VerifyService) Resend(ctx context.Context, id string) (*SendVerificationResponse, error) {
+	var resp SendVerificationResponse
+	err := s.client.doRequest(ctx, "POST", fmt.Sprintf("/verify/%s/resend", id), nil, &resp)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 // Check verifies an OTP code.
 func (s *VerifyService) Check(ctx context.Context, id string, req *CheckVerificationRequest) (*CheckVerificationResponse, error) {
 	var resp CheckVerificationResponse
