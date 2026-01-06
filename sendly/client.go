@@ -111,7 +111,7 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 	c.Messages = &MessagesService{client: c}
 	c.WebhooksService = &WebhooksService{client: c}
 	c.Account = &AccountService{client: c}
-	c.Verify = &VerifyService{client: c}
+	c.Verify = &VerifyService{client: c, Sessions: &SessionsService{client: c}}
 	c.Templates = &TemplatesService{client: c}
 
 	return c

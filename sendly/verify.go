@@ -9,6 +9,12 @@ import (
 
 // VerifyService provides OTP verification operations.
 type VerifyService struct {
+	client   *Client
+	Sessions *SessionsService
+}
+
+// SessionsService provides hosted verification flow operations.
+type SessionsService struct {
 	client *Client
 }
 
@@ -77,6 +83,66 @@ type VerificationListResponse struct {
 		Limit   int  `json:"limit"`
 		HasMore bool `json:"has_more"`
 	} `json:"pagination"`
+}
+
+// CreateSessionRequest represents the parameters for creating a verification session.
+type CreateSessionRequest struct {
+	SuccessURL string                 `json:"success_url"`
+	CancelURL  string                 `json:"cancel_url,omitempty"`
+	BrandName  string                 `json:"brand_name,omitempty"`
+	BrandColor string                 `json:"brand_color,omitempty"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// VerifySession represents a hosted verification session.
+type VerifySession struct {
+	ID             string                 `json:"id"`
+	URL            string                 `json:"url"`
+	Status         string                 `json:"status"`
+	SuccessURL     string                 `json:"success_url"`
+	CancelURL      string                 `json:"cancel_url,omitempty"`
+	BrandName      string                 `json:"brand_name,omitempty"`
+	BrandColor     string                 `json:"brand_color,omitempty"`
+	Phone          string                 `json:"phone,omitempty"`
+	VerificationID string                 `json:"verification_id,omitempty"`
+	Token          string                 `json:"token,omitempty"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	ExpiresAt      string                 `json:"expires_at"`
+	CreatedAt      string                 `json:"created_at"`
+}
+
+// ValidateSessionRequest represents the parameters for validating a session token.
+type ValidateSessionRequest struct {
+	Token string `json:"token"`
+}
+
+// ValidateSessionResponse represents the response from validating a session token.
+type ValidateSessionResponse struct {
+	Valid      bool                   `json:"valid"`
+	SessionID  string                 `json:"session_id,omitempty"`
+	Phone      string                 `json:"phone,omitempty"`
+	VerifiedAt string                 `json:"verified_at,omitempty"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// Create creates a hosted verification session.
+func (s *SessionsService) Create(ctx context.Context, req *CreateSessionRequest) (*VerifySession, error) {
+	var resp VerifySession
+	err := s.client.doRequest(ctx, "POST", "/verify/sessions", req, &resp)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// Validate validates a session token after user completes verification.
+func (s *SessionsService) Validate(ctx context.Context, req *ValidateSessionRequest) (*ValidateSessionResponse, error) {
+	var resp ValidateSessionResponse
+	err := s.client.doRequest(ctx, "POST", "/verify/sessions/validate", req, &resp)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 // Send sends an OTP verification code.
