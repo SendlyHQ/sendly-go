@@ -48,6 +48,8 @@ const (
 	MessageStatusDelivered MessageStatus = "delivered"
 	// MessageStatusFailed means the message failed to deliver.
 	MessageStatusFailed MessageStatus = "failed"
+	// MessageStatusBounced means the message bounced (carrier rejected).
+	MessageStatusBounced MessageStatus = "bounced"
 )
 
 // SenderType indicates how a message was sent.

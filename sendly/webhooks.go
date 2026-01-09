@@ -30,6 +30,7 @@ const (
 	WebhookStatusSent        WebhookMessageStatus = "sent"
 	WebhookStatusDelivered   WebhookMessageStatus = "delivered"
 	WebhookStatusFailed      WebhookMessageStatus = "failed"
+	WebhookStatusBounced     WebhookMessageStatus = "bounced"
 	WebhookStatusUndelivered WebhookMessageStatus = "undelivered"
 )
 
