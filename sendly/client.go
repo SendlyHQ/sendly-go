@@ -48,6 +48,10 @@ type Client struct {
 	Verify *VerifyService
 	// Templates provides access to SMS template management.
 	Templates *TemplatesService
+	// Campaigns provides access to campaign operations.
+	Campaigns *CampaignsService
+	// Contacts provides access to contact management.
+	Contacts *ContactsService
 
 	rateLimiter *rate.Limiter
 }
@@ -113,6 +117,8 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 	c.Account = &AccountService{client: c}
 	c.Verify = &VerifyService{client: c, Sessions: &SessionsService{client: c}}
 	c.Templates = &TemplatesService{client: c}
+	c.Campaigns = &CampaignsService{client: c}
+	c.Contacts = &ContactsService{client: c, Lists: &ContactListsService{client: c}}
 
 	return c
 }

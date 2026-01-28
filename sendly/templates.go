@@ -137,3 +137,23 @@ func (s *TemplatesService) Preview(ctx context.Context, id string, variables map
 func (s *TemplatesService) Delete(ctx context.Context, id string) error {
 	return s.client.doRequest(ctx, "DELETE", fmt.Sprintf("/templates/%s", id), nil, nil)
 }
+
+// CloneTemplateRequest represents the parameters for cloning a template.
+type CloneTemplateRequest struct {
+	Name string `json:"name,omitempty"`
+}
+
+// Clone clones a template.
+func (s *TemplatesService) Clone(ctx context.Context, id string, req *CloneTemplateRequest) (*Template, error) {
+	body := map[string]interface{}{}
+	if req != nil && req.Name != "" {
+		body["name"] = req.Name
+	}
+
+	var resp Template
+	err := s.client.doRequest(ctx, "POST", fmt.Sprintf("/templates/%s/clone", id), body, &resp)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
