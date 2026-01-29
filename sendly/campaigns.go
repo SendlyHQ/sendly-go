@@ -51,9 +51,28 @@ type CampaignListResponse struct {
 }
 
 type CampaignPreview struct {
-	RecipientCount   int     `json:"recipient_count"`
-	EstimatedCredits float64 `json:"estimated_credits"`
-	EstimatedCost    float64 `json:"estimated_cost"`
+	RecipientCount   int                          `json:"recipient_count"`
+	EstimatedCredits float64                      `json:"estimated_credits"`
+	EstimatedCost    float64                      `json:"estimated_cost"`
+	BlockedCount     *int                         `json:"blocked_count,omitempty"`
+	SendableCount    *int                         `json:"sendable_count,omitempty"`
+	ByCountry        map[string]CountryAccessInfo `json:"by_country,omitempty"`
+	Warnings         []string                     `json:"warnings,omitempty"`
+	MessagingProfile *MessagingProfileAccess      `json:"messaging_profile,omitempty"`
+}
+
+type CountryAccessInfo struct {
+	Count         int    `json:"count"`
+	Credits       int    `json:"credits"`
+	Allowed       bool   `json:"allowed"`
+	BlockedReason string `json:"blocked_reason,omitempty"`
+}
+
+type MessagingProfileAccess struct {
+	CanSendDomestic      bool    `json:"can_send_domestic"`
+	CanSendInternational bool    `json:"can_send_international"`
+	VerificationType     *string `json:"verification_type"`
+	VerificationStatus   *string `json:"verification_status"`
 }
 
 type CreateCampaignRequest struct {
