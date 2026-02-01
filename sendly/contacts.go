@@ -83,6 +83,32 @@ type AddContactsRequest struct {
 	ContactIDs []string `json:"contact_ids"`
 }
 
+type ImportContactItem struct {
+	Phone     string `json:"phone"`
+	Name      string `json:"name,omitempty"`
+	Email     string `json:"email,omitempty"`
+	OptedInAt string `json:"optedInAt,omitempty"`
+}
+
+type ImportContactsRequest struct {
+	Contacts  []ImportContactItem `json:"contacts"`
+	ListID    string              `json:"listId,omitempty"`
+	OptedInAt string              `json:"optedInAt,omitempty"`
+}
+
+type ImportContactsError struct {
+	Index int    `json:"index"`
+	Phone string `json:"phone"`
+	Error string `json:"error"`
+}
+
+type ImportContactsResponse struct {
+	Imported          int                   `json:"imported"`
+	SkippedDuplicates int                   `json:"skippedDuplicates"`
+	Errors            []ImportContactsError `json:"errors"`
+	TotalErrors       int                   `json:"totalErrors"`
+}
+
 func (s *ContactsService) List(ctx context.Context, req *ListContactsRequest) (*ContactListResponse, error) {
 	params := make(map[string]string)
 	if req != nil {
@@ -138,6 +164,15 @@ func (s *ContactsService) Update(ctx context.Context, id string, req *UpdateCont
 
 func (s *ContactsService) Delete(ctx context.Context, id string) error {
 	return s.client.request(ctx, "DELETE", fmt.Sprintf("/contacts/%s", id), nil, nil)
+}
+
+func (s *ContactsService) Import(ctx context.Context, req *ImportContactsRequest) (*ImportContactsResponse, error) {
+	var resp ImportContactsResponse
+	err := s.client.request(ctx, "POST", "/contacts/import", req, &resp)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 func (s *ContactListsService) List(ctx context.Context) (*ContactListsResponse, error) {
