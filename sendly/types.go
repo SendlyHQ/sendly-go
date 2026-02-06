@@ -34,6 +34,8 @@ type Message struct {
 	CreatedAt string `json:"createdAt,omitempty"`
 	// DeliveredAt is when the message was delivered (if applicable).
 	DeliveredAt *string `json:"deliveredAt,omitempty"`
+	// Metadata contains custom user-provided metadata.
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // MessageStatus represents the status of a message.
@@ -82,6 +84,8 @@ type SendMessageRequest struct {
 	Text string `json:"text"`
 	// MessageType is the message type for compliance: "marketing" (default) or "transactional".
 	MessageType MessageType `json:"messageType,omitempty"`
+	// Metadata is custom JSON metadata to attach to the message (max 4KB).
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // SendMessageResponse is the response from sending a message.
@@ -170,6 +174,8 @@ type ScheduleMessageRequest struct {
 	From string `json:"from,omitempty"`
 	// MessageType is the message type for compliance: "marketing" (default) or "transactional".
 	MessageType MessageType `json:"messageType,omitempty"`
+	// Metadata is custom JSON metadata to attach to the message (max 4KB).
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // ListScheduledMessagesRequest is the request to list scheduled messages.
@@ -216,6 +222,8 @@ type SendBatchRequest struct {
 	From string `json:"from,omitempty"`
 	// MessageType is the message type for compliance: "marketing" (default) or "transactional".
 	MessageType MessageType `json:"messageType,omitempty"`
+	// Metadata is custom JSON metadata to attach to all messages in the batch (max 4KB).
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // BatchStatus represents the status of a batch.
