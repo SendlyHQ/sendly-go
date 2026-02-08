@@ -110,6 +110,16 @@ message, err := client.Messages.Send(ctx, &sendly.SendMessageRequest{
     MessageType: "transactional",
 })
 
+// With custom metadata (max 4KB)
+message, err := client.Messages.Send(ctx, &sendly.SendMessageRequest{
+    To:   "+15551234567",
+    Text: "Your order #12345 has shipped!",
+    Metadata: map[string]interface{}{
+        "order_id":    "12345",
+        "customer_id": "cust_abc",
+    },
+})
+
 fmt.Printf("ID: %s\n", message.ID)
 fmt.Printf("Status: %s\n", message.Status)
 fmt.Printf("Credits: %d\n", message.CreditsUsed)

@@ -212,6 +212,8 @@ type BatchMessageItem struct {
 	To string `json:"to"`
 	// Text is the message content (required).
 	Text string `json:"text"`
+	// Metadata is custom JSON metadata for this message (max 4KB, merged with batch metadata).
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // SendBatchRequest is the request to send batch messages.
