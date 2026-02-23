@@ -193,6 +193,20 @@ func (s *WebhooksService) Test(ctx context.Context, webhookID string) (*WebhookT
 	return &result, nil
 }
 
+// ResetCircuit resets the circuit breaker for a webhook.
+func (s *WebhooksService) ResetCircuit(ctx context.Context, webhookID string) (map[string]interface{}, error) {
+	if webhookID == "" || !strings.HasPrefix(webhookID, "whk_") {
+		return nil, errors.New("invalid webhook ID format")
+	}
+
+	var result map[string]interface{}
+	if err := s.client.request(ctx, "POST", "/webhooks/"+webhookID+"/reset-circuit", nil, &result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 // RotateSecret rotates the webhook signing secret.
 func (s *WebhooksService) RotateSecret(ctx context.Context, webhookID string) (*WebhookSecretRotation, error) {
 	if webhookID == "" || !strings.HasPrefix(webhookID, "whk_") {
