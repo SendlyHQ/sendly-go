@@ -34,6 +34,10 @@ type Message struct {
 	CreatedAt string `json:"createdAt,omitempty"`
 	// DeliveredAt is when the message was delivered (if applicable).
 	DeliveredAt *string `json:"deliveredAt,omitempty"`
+	// ErrorCode is the error code if delivery failed.
+	ErrorCode *string `json:"errorCode,omitempty"`
+	// RetryCount is the number of delivery retry attempts.
+	RetryCount int `json:"retryCount,omitempty"`
 	// Metadata contains custom user-provided metadata.
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
@@ -52,6 +56,8 @@ const (
 	MessageStatusFailed MessageStatus = "failed"
 	// MessageStatusBounced means the message bounced (carrier rejected).
 	MessageStatusBounced MessageStatus = "bounced"
+	// MessageStatusRetrying means the message is being retried after a transient failure.
+	MessageStatusRetrying MessageStatus = "retrying"
 )
 
 // SenderType indicates how a message was sent.

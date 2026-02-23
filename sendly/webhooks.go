@@ -19,6 +19,8 @@ const (
 	WebhookEventMessageSent        WebhookEventType = "message.sent"
 	WebhookEventMessageDelivered   WebhookEventType = "message.delivered"
 	WebhookEventMessageFailed      WebhookEventType = "message.failed"
+	WebhookEventMessageBounced     WebhookEventType = "message.bounced"
+	WebhookEventMessageRetrying    WebhookEventType = "message.retrying"
 	WebhookEventMessageUndelivered WebhookEventType = "message.undelivered"
 )
 
