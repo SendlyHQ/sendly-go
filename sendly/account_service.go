@@ -119,6 +119,33 @@ func (s *AccountService) GetCreditTransactions(ctx context.Context, opts *ListCr
 	return transactions, nil
 }
 
+type TransferCreditsRequest struct {
+	TargetOrganizationID string `json:"targetOrganizationId"`
+	Amount               int    `json:"amount"`
+}
+
+type TransferCreditsResponse struct {
+	Success       bool `json:"success"`
+	Amount        int  `json:"amount"`
+	SourceBalance int  `json:"sourceBalance"`
+	TargetBalance int  `json:"targetBalance"`
+}
+
+func (s *AccountService) TransferCredits(ctx context.Context, req TransferCreditsRequest) (*TransferCreditsResponse, error) {
+	if req.TargetOrganizationID == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "target organization ID is required"}}
+	}
+	if req.Amount <= 0 {
+		return nil, &ValidationError{APIError: APIError{Message: "amount must be a positive integer"}}
+	}
+
+	var resp TransferCreditsResponse
+	if err := s.client.request(ctx, "POST", "/credits/transfer", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 // ListAPIKeys retrieves all API keys for the account.
 func (s *AccountService) ListAPIKeys(ctx context.Context) ([]APIKey, error) {
 	var apiResp []apiKeyAPIResponse
