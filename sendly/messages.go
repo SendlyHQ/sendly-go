@@ -11,7 +11,7 @@ type MessagesService struct {
 	client *Client
 }
 
-// Send sends an SMS message.
+// Send sends an SMS or MMS message.
 func (s *MessagesService) Send(ctx context.Context, req *SendMessageRequest) (*Message, error) {
 	if req == nil {
 		return nil, &ValidationError{APIError: APIError{Message: "request is required"}}
@@ -19,8 +19,8 @@ func (s *MessagesService) Send(ctx context.Context, req *SendMessageRequest) (*M
 	if req.To == "" {
 		return nil, &ValidationError{APIError: APIError{Message: "to is required"}}
 	}
-	if req.Text == "" {
-		return nil, &ValidationError{APIError: APIError{Message: "text is required"}}
+	if req.Text == "" && len(req.MediaUrls) == 0 {
+		return nil, &ValidationError{APIError: APIError{Message: "either text or media_urls is required"}}
 	}
 
 	var resp Message

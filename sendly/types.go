@@ -90,8 +90,22 @@ type SendMessageRequest struct {
 	Text string `json:"text"`
 	// MessageType is the message type for compliance: "marketing" (default) or "transactional".
 	MessageType MessageType `json:"messageType,omitempty"`
+	// MediaUrls is a list of media URLs to attach (converts message to MMS).
+	MediaUrls []string `json:"mediaUrls,omitempty"`
 	// Metadata is custom JSON metadata to attach to the message (max 4KB).
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// MediaFile represents an uploaded media file.
+type MediaFile struct {
+	// ID is the unique media file identifier.
+	ID string `json:"id"`
+	// URL is the public URL of the uploaded file.
+	URL string `json:"url"`
+	// ContentType is the MIME type of the file.
+	ContentType string `json:"contentType"`
+	// SizeBytes is the file size in bytes.
+	SizeBytes int64 `json:"sizeBytes"`
 }
 
 // SendMessageResponse is the response from sending a message.
