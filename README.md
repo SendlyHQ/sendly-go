@@ -354,6 +354,73 @@ Use test API keys (`sk_test_v1_xxx`) with these test numbers:
 | +15005550004 | Fails: rate_limit_exceeded |
 | +15005550006 | Fails: carrier_violation |
 
+## Enterprise
+
+The Enterprise API lets you programmatically manage workspaces, verification, credits, and API keys for multi-tenant platforms. Requires an enterprise master key (`sk_live_v1_master_*`).
+
+### Quick Provision
+
+Create a fully configured workspace in a single call:
+
+```go
+client := sendly.New("sk_live_v1_master_YOUR_KEY")
+
+generateOptIn := true
+result, err := client.Enterprise.Provision(ctx, sendly.ProvisionWorkspaceRequest{
+    Name:                    "Acme Insurance - Austin",
+    SourceWorkspaceID:       "ws_verified",
+    CreditAmount:            5000,
+    CreditSourceWorkspaceID: "ws_pool",
+    KeyName:                 "Production",
+    KeyType:                 "live",
+    GenerateOptInPage:       &generateOptIn,
+})
+
+fmt.Println(result.Workspace.ID)
+fmt.Println(result.APIKey.RawKey)
+```
+
+Three provisioning modes:
+
+| Mode | Params | Description |
+|------|--------|-------------|
+| **Inherit** | `SourceWorkspaceID` | Shares toll-free number from verified workspace |
+| **Inherit + New Number** | `SourceWorkspaceID` + `InheritWithNewNumber: true` | Copies business info, purchases new number |
+| **Fresh** | `Verification: sendly.VerificationData{...}` | Full business details, new number + carrier approval |
+
+### Workspace Management
+
+```go
+ws, _ := client.Enterprise.Workspaces.Create(ctx, "Acme Insurance", "")
+list, _ := client.Enterprise.Workspaces.List(ctx)
+detail, _ := client.Enterprise.Workspaces.Get(ctx, "ws_xxx")
+_ = client.Enterprise.Workspaces.Delete(ctx, "ws_xxx")
+```
+
+### Credits & API Keys
+
+```go
+result, _ := client.Enterprise.Workspaces.TransferCredits(ctx, "ws_dest", "ws_source", 5000)
+
+key, _ := client.Enterprise.Workspaces.CreateKey(ctx, "ws_xxx", "Production", "live")
+fmt.Println(key.RawKey)
+
+_ = client.Enterprise.Workspaces.RevokeKey(ctx, "ws_xxx", "key_abc")
+```
+
+### Webhooks & Analytics
+
+```go
+webhook, _ := client.Enterprise.Webhooks.Set(ctx, "https://yourapp.com/webhooks")
+overview, _ := client.Enterprise.Analytics.Overview(ctx)
+messages, _ := client.Enterprise.Analytics.Messages(ctx, "30d", "")
+delivery, _ := client.Enterprise.Analytics.Delivery(ctx)
+```
+
+Full enterprise docs: [sendly.live/docs/enterprise](https://sendly.live/docs/enterprise)
+
+---
+
 ## Requirements
 
 - Go 1.21+

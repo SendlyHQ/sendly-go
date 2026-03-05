@@ -604,3 +604,490 @@ type APIKey struct {
 	// IsRevoked indicates whether the key is revoked.
 	IsRevoked bool `json:"isRevoked"`
 }
+
+// ============================================================================
+// Enterprise
+// ============================================================================
+
+type EnterpriseWorkspaceSummary struct {
+	ID                 string  `json:"id"`
+	Name               string  `json:"name"`
+	Slug               string  `json:"slug"`
+	VerificationStatus *string `json:"verificationStatus,omitempty"`
+	VerificationType   *string `json:"verificationType,omitempty"`
+	TollFreeNumber     *string `json:"tollFreeNumber,omitempty"`
+	CreditBalance      int     `json:"creditBalance"`
+}
+
+type EnterpriseAccount struct {
+	ID             string                       `json:"id"`
+	MaxWorkspaces  int                          `json:"maxWorkspaces"`
+	WorkspaceCount int                          `json:"workspaceCount"`
+	Workspaces     []EnterpriseWorkspaceSummary `json:"workspaces"`
+	Metadata       map[string]interface{}       `json:"metadata,omitempty"`
+}
+
+type EnterpriseWorkspace struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Slug      string `json:"slug"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type WorkspaceVerificationInfo struct {
+	Status         string  `json:"status"`
+	Type           string  `json:"type"`
+	TollFreeNumber *string `json:"tollFreeNumber,omitempty"`
+	BusinessName   string  `json:"businessName,omitempty"`
+}
+
+type WorkspaceDetail struct {
+	ID           string                     `json:"id"`
+	Name         string                     `json:"name"`
+	Slug         string                     `json:"slug"`
+	CreatedAt    string                     `json:"createdAt"`
+	Verification *WorkspaceVerificationInfo `json:"verification,omitempty"`
+	Credits      int                        `json:"credits"`
+	KeyCount     int                        `json:"keyCount"`
+}
+
+type SubmitVerificationAddress struct {
+	Street   string `json:"street"`
+	Address2 string `json:"address2,omitempty"`
+	City     string `json:"city"`
+	State    string `json:"state"`
+	Zip      string `json:"zip"`
+	Country  string `json:"country,omitempty"`
+}
+
+type SubmitVerificationContact struct {
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+	Email     string `json:"email"`
+	Phone     string `json:"phone"`
+}
+
+type SubmitVerificationRequest struct {
+	BusinessName          string                    `json:"businessName"`
+	DoingBusinessAs       string                    `json:"doingBusinessAs,omitempty"`
+	Website               string                    `json:"website"`
+	Address               SubmitVerificationAddress `json:"address"`
+	Contact               SubmitVerificationContact `json:"contact"`
+	BRN                   string                    `json:"brn,omitempty"`
+	BRNType               string                    `json:"brnType,omitempty"`
+	BRNCountry            string                    `json:"brnCountry,omitempty"`
+	UseCase               string                    `json:"useCase"`
+	UseCaseSummary        string                    `json:"useCaseSummary"`
+	SampleMessages        string                    `json:"sampleMessages"`
+	OptInWorkflow         string                    `json:"optInWorkflow"`
+	OptInImageUrls        string                    `json:"optInImageUrls,omitempty"`
+	MonthlyVolume         string                    `json:"monthlyVolume,omitempty"`
+	AdditionalInformation string                    `json:"additionalInformation,omitempty"`
+	AgeGatedContent       bool                      `json:"ageGatedContent,omitempty"`
+	ISVReseller           bool                      `json:"isvReseller,omitempty"`
+	PrivacyURL            string                    `json:"privacyUrl,omitempty"`
+	TermsURL              string                    `json:"termsUrl,omitempty"`
+	EntityType            string                    `json:"entityType,omitempty"`
+}
+
+type VerificationResponse struct {
+	VerificationID  string  `json:"verificationId"`
+	Status          string  `json:"status"`
+	TollFreeNumber  *string `json:"tollFreeNumber,omitempty"`
+	BusinessName    string  `json:"businessName"`
+	TelnyxProfileID string  `json:"telnyxProfileId,omitempty"`
+}
+
+type InheritVerificationResponse struct {
+	VerificationID string  `json:"verificationId"`
+	Status         string  `json:"status"`
+	Type           string  `json:"type"`
+	TollFreeNumber *string `json:"tollFreeNumber,omitempty"`
+	InheritedFrom  string  `json:"inheritedFrom"`
+}
+
+type VerificationStatusResponse struct {
+	VerificationID string  `json:"verificationId,omitempty"`
+	Status         string  `json:"status"`
+	Type           string  `json:"type,omitempty"`
+	TollFreeNumber *string `json:"tollFreeNumber,omitempty"`
+	BusinessName   string  `json:"businessName,omitempty"`
+	SubmittedAt    string  `json:"submittedAt,omitempty"`
+}
+
+type TransferCreditsResult struct {
+	Success       bool `json:"success"`
+	Amount        int  `json:"amount"`
+	SourceBalance int  `json:"sourceBalance"`
+	TargetBalance int  `json:"targetBalance"`
+}
+
+type WorkspaceCredits struct {
+	Balance         int `json:"balance"`
+	LifetimeCredits int `json:"lifetimeCredits"`
+}
+
+type WorkspaceKey struct {
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	KeyPrefix  string   `json:"keyPrefix"`
+	Type       string   `json:"type"`
+	Scopes     []string `json:"scopes"`
+	LastUsedAt *string  `json:"lastUsedAt,omitempty"`
+	CreatedAt  string   `json:"createdAt"`
+}
+
+type WorkspaceKeyCreated struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Key       string   `json:"key"`
+	KeyPrefix string   `json:"keyPrefix"`
+	Type      string   `json:"type"`
+	Scopes    []string `json:"scopes"`
+	CreatedAt string   `json:"createdAt"`
+}
+
+type ProvisionVerificationData struct {
+	BusinessName          string                    `json:"businessName"`
+	DoingBusinessAs       string                    `json:"doingBusinessAs,omitempty"`
+	Website               string                    `json:"website"`
+	Address               SubmitVerificationAddress `json:"address"`
+	Contact               SubmitVerificationContact `json:"contact"`
+	BRN                   string                    `json:"brn,omitempty"`
+	BRNType               string                    `json:"brnType,omitempty"`
+	BRNCountry            string                    `json:"brnCountry,omitempty"`
+	UseCase               string                    `json:"useCase"`
+	UseCaseSummary        string                    `json:"useCaseSummary"`
+	SampleMessages        string                    `json:"sampleMessages"`
+	OptInWorkflow         string                    `json:"optInWorkflow"`
+	OptInImageUrls        string                    `json:"optInImageUrls,omitempty"`
+	MonthlyVolume         string                    `json:"monthlyVolume,omitempty"`
+	AdditionalInformation string                    `json:"additionalInformation,omitempty"`
+	AgeGatedContent       bool                      `json:"ageGatedContent,omitempty"`
+	ISVReseller           bool                      `json:"isvReseller,omitempty"`
+	PrivacyURL            string                    `json:"privacyUrl,omitempty"`
+	TermsURL              string                    `json:"termsUrl,omitempty"`
+	EntityType            string                    `json:"entityType,omitempty"`
+}
+
+type ProvisionWorkspaceRequest struct {
+	Name                    string                     `json:"name"`
+	SourceWorkspaceID       string                     `json:"sourceWorkspaceId,omitempty"`
+	InheritWithNewNumber    bool                       `json:"inheritWithNewNumber,omitempty"`
+	Verification            *ProvisionVerificationData `json:"verification,omitempty"`
+	CreditAmount            int                        `json:"creditAmount,omitempty"`
+	CreditSourceWorkspaceID string                     `json:"creditSourceWorkspaceId,omitempty"`
+	KeyName                 string                     `json:"keyName,omitempty"`
+	KeyType                 string                     `json:"keyType,omitempty"`
+	WebhookURL              string                     `json:"webhookUrl,omitempty"`
+	GenerateOptInPage       *bool                      `json:"generateOptInPage,omitempty"`
+}
+
+type ProvisionVerificationResult struct {
+	ID             string  `json:"id"`
+	Status         string  `json:"status"`
+	Type           string  `json:"type,omitempty"`
+	TollFreeNumber *string `json:"tollFreeNumber,omitempty"`
+	Inherited      bool    `json:"inherited"`
+}
+
+type ProvisionCreditsResult struct {
+	Transferred int    `json:"transferred,omitempty"`
+	Balance     int    `json:"balance,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
+type ProvisionKeyResult struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Key       string `json:"key"`
+	KeyPrefix string `json:"keyPrefix"`
+	Type      string `json:"type"`
+}
+
+type ProvisionWebhookResult struct {
+	URL   string `json:"url,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+type ProvisionOptInPageResult struct {
+	URL    string `json:"url"`
+	Slug   string `json:"slug"`
+	PageID string `json:"pageId"`
+}
+
+type ProvisionLegalPagesResult struct {
+	PrivacyURL string `json:"privacyUrl,omitempty"`
+	TermsURL   string `json:"termsUrl,omitempty"`
+}
+
+type ProvisionWorkspaceResponse struct {
+	Workspace    EnterpriseWorkspace          `json:"workspace"`
+	Verification *ProvisionVerificationResult `json:"verification,omitempty"`
+	Credits      *ProvisionCreditsResult      `json:"credits,omitempty"`
+	Key          *ProvisionKeyResult          `json:"key,omitempty"`
+	Webhook      *ProvisionWebhookResult      `json:"webhook,omitempty"`
+	OptInPage    *ProvisionOptInPageResult    `json:"optInPage,omitempty"`
+	LegalPages   *ProvisionLegalPagesResult   `json:"legalPages,omitempty"`
+	APIBaseURL   string                       `json:"apiBaseUrl,omitempty"`
+	DashboardURL string                       `json:"dashboardUrl,omitempty"`
+}
+
+type EnterpriseWebhook struct {
+	URL string `json:"url"`
+}
+
+type EnterpriseWebhookTestResult struct {
+	Success    bool   `json:"success"`
+	StatusCode *int   `json:"statusCode,omitempty"`
+	StatusText string `json:"statusText,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+type AnalyticsOverview struct {
+	TotalMessages     int `json:"totalMessages"`
+	DeliveredMessages int `json:"deliveredMessages"`
+	FailedMessages    int `json:"failedMessages"`
+	DeliveryRate      int `json:"deliveryRate"`
+	TotalCreditsUsed  int `json:"totalCreditsUsed"`
+	ActiveWorkspaces  int `json:"activeWorkspaces"`
+}
+
+type AnalyticsMessagesOptions struct {
+	Period      string
+	WorkspaceID string
+}
+
+type AnalyticsMessageDay struct {
+	Date      string `json:"date"`
+	Sent      int    `json:"sent"`
+	Delivered int    `json:"delivered"`
+	Failed    int    `json:"failed"`
+}
+
+type AnalyticsMessagesResponse struct {
+	Period string                `json:"period"`
+	Data   []AnalyticsMessageDay `json:"data"`
+}
+
+type DeliveryAnalytics struct {
+	WorkspaceID string `json:"workspaceId"`
+	Name        string `json:"name"`
+	Sent        int    `json:"sent"`
+	Delivered   int    `json:"delivered"`
+	Failed      int    `json:"failed"`
+	Rate        int    `json:"rate"`
+}
+
+type AnalyticsCreditsOptions struct {
+	Period string
+}
+
+type AnalyticsCreditDay struct {
+	Date        string `json:"date"`
+	Used        int    `json:"used"`
+	Transferred int    `json:"transferred"`
+	Purchased   int    `json:"purchased"`
+}
+
+type AnalyticsCreditsResponse struct {
+	Period string               `json:"period"`
+	Data   []AnalyticsCreditDay `json:"data"`
+}
+
+type OptInPage struct {
+	ID             string  `json:"id"`
+	Slug           string  `json:"slug"`
+	URL            string  `json:"url"`
+	BusinessName   string  `json:"businessName"`
+	UseCase        *string `json:"useCase,omitempty"`
+	IsActive       bool    `json:"isActive"`
+	ViewCount      int     `json:"viewCount"`
+	LogoURL        *string `json:"logoUrl,omitempty"`
+	HeaderColor    *string `json:"headerColor,omitempty"`
+	ButtonColor    *string `json:"buttonColor,omitempty"`
+	CustomHeadline *string `json:"customHeadline,omitempty"`
+	CreatedAt      string  `json:"createdAt"`
+}
+
+type CreateOptInPageRequest struct {
+	BusinessName   string `json:"businessName"`
+	UseCase        string `json:"useCase,omitempty"`
+	UseCaseSummary string `json:"useCaseSummary,omitempty"`
+	SampleMessages string `json:"sampleMessages,omitempty"`
+}
+
+type CreateOptInPageResponse struct {
+	ID           string `json:"id"`
+	Slug         string `json:"slug"`
+	URL          string `json:"url"`
+	BusinessName string `json:"businessName"`
+}
+
+type UpdateOptInPageRequest struct {
+	LogoURL        *string  `json:"logoUrl,omitempty"`
+	HeaderColor    *string  `json:"headerColor,omitempty"`
+	ButtonColor    *string  `json:"buttonColor,omitempty"`
+	CustomHeadline *string  `json:"customHeadline,omitempty"`
+	CustomBenefits []string `json:"customBenefits,omitempty"`
+}
+
+type WorkspaceWebhook struct {
+	ID        string   `json:"id"`
+	URL       string   `json:"url"`
+	Events    []string `json:"events"`
+	IsActive  bool     `json:"isActive"`
+	CreatedAt string   `json:"createdAt"`
+}
+
+type SetWorkspaceWebhookRequest struct {
+	URL         string   `json:"url"`
+	Events      []string `json:"events,omitempty"`
+	Description string   `json:"description,omitempty"`
+}
+
+type SetWorkspaceWebhookResponse struct {
+	ID      string   `json:"id"`
+	URL     string   `json:"url"`
+	Events  []string `json:"events"`
+	Secret  string   `json:"secret,omitempty"`
+	Created bool     `json:"created,omitempty"`
+	Updated bool     `json:"updated,omitempty"`
+}
+
+type SuspendWorkspaceRequest struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+type SuspendWorkspaceResponse struct {
+	ID          string `json:"id"`
+	Status      string `json:"status"`
+	SuspendedAt string `json:"suspendedAt"`
+}
+
+type ResumeWorkspaceResponse struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+}
+
+type AutoTopUpSettings struct {
+	Enabled           bool    `json:"enabled"`
+	Threshold         int     `json:"threshold"`
+	Amount            int     `json:"amount"`
+	SourceWorkspaceID *string `json:"sourceWorkspaceId"`
+}
+
+type UpdateAutoTopUpRequest struct {
+	Enabled           bool    `json:"enabled"`
+	Threshold         int     `json:"threshold"`
+	Amount            int     `json:"amount"`
+	SourceWorkspaceID *string `json:"sourceWorkspaceId,omitempty"`
+}
+
+type WorkspaceBillingItem struct {
+	ID                    string `json:"id"`
+	Name                  string `json:"name"`
+	CreditsUsed           int    `json:"creditsUsed"`
+	CreditsPurchased      int    `json:"creditsPurchased"`
+	CreditsTransferredIn  int    `json:"creditsTransferredIn"`
+	CreditsTransferredOut int    `json:"creditsTransferredOut"`
+	MessagesSent          int    `json:"messagesSent"`
+	MessagesDelivered     int    `json:"messagesDelivered"`
+	WorkspaceFee          int    `json:"workspaceFee"`
+	AllocatedPlatformFee  int    `json:"allocatedPlatformFee"`
+	TotalCost             int    `json:"totalCost"`
+}
+
+type BillingBreakdownSummary struct {
+	PlatformFee        int `json:"platformFee"`
+	TotalWorkspaceFees int `json:"totalWorkspaceFees"`
+	TotalCreditsUsed   int `json:"totalCreditsUsed"`
+	TotalCost          int `json:"totalCost"`
+}
+
+type BillingBreakdown struct {
+	Period     string                  `json:"period"`
+	Summary    BillingBreakdownSummary `json:"summary"`
+	Workspaces []WorkspaceBillingItem  `json:"workspaces"`
+}
+
+type BillingBreakdownOptions struct {
+	Period string
+	Page   int
+	Limit  int
+}
+
+type BulkProvisionWorkspace struct {
+	Name                    string `json:"name"`
+	SourceWorkspaceID       string `json:"sourceWorkspaceId,omitempty"`
+	CreditAmount            int    `json:"creditAmount,omitempty"`
+	CreditSourceWorkspaceID string `json:"creditSourceWorkspaceId,omitempty"`
+}
+
+type BulkProvisionRequest struct {
+	Workspaces []BulkProvisionWorkspace `json:"workspaces"`
+}
+
+type BulkProvisionResultItem struct {
+	Name        string  `json:"name"`
+	Status      string  `json:"status"`
+	WorkspaceID *string `json:"workspaceId,omitempty"`
+	Slug        *string `json:"slug,omitempty"`
+	Warning     *string `json:"warning,omitempty"`
+	Error       *string `json:"error,omitempty"`
+}
+
+type BulkProvisionSummary struct {
+	Total     int `json:"total"`
+	Succeeded int `json:"succeeded"`
+	Failed    int `json:"failed"`
+}
+
+type BulkProvisionResult struct {
+	Results []BulkProvisionResultItem `json:"results"`
+	Summary BulkProvisionSummary      `json:"summary"`
+}
+
+type DnsRecord struct {
+	Type  string `json:"type"`
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+type DnsInstructions struct {
+	CNAME DnsRecord `json:"cname"`
+	TXT   DnsRecord `json:"txt"`
+}
+
+type SetCustomDomainRequest struct {
+	Domain string `json:"domain"`
+}
+
+type SetCustomDomainResponse struct {
+	Domain          string          `json:"domain"`
+	Verified        bool            `json:"verified"`
+	DnsInstructions DnsInstructions `json:"dnsInstructions"`
+}
+
+type SendInvitationRequest struct {
+	Email string `json:"email"`
+	Role  string `json:"role"`
+}
+
+type Invitation struct {
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	Status    string `json:"status"`
+	ExpiresAt string `json:"expiresAt"`
+}
+
+type QuotaSettings struct {
+	MonthlyMessageQuota *int    `json:"monthlyMessageQuota"`
+	MessagesThisMonth   int     `json:"messagesThisMonth"`
+	QuotaResetAt        *string `json:"quotaResetAt"`
+}
+
+type UpdateQuotaRequest struct {
+	MonthlyMessageQuota *int `json:"monthlyMessageQuota"`
+}

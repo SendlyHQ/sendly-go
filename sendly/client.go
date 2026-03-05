@@ -54,6 +54,8 @@ type Client struct {
 	Contacts *ContactsService
 	// Media provides access to media upload operations.
 	Media *MediaService
+	// Enterprise provides access to enterprise management operations.
+	Enterprise *EnterpriseService
 
 	rateLimiter *rate.Limiter
 }
@@ -122,6 +124,14 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 	c.Campaigns = &CampaignsService{client: c}
 	c.Contacts = &ContactsService{client: c, Lists: &ContactListsService{client: c}}
 	c.Media = &MediaService{client: c}
+	c.Enterprise = &EnterpriseService{
+		client:     c,
+		Workspaces: &WorkspacesService{client: c},
+		Webhooks:   &EnterpriseWebhooksService{client: c},
+		Analytics:  &AnalyticsService{client: c},
+		Settings:   &SettingsService{client: c},
+		Billing:    &BillingService{client: c},
+	}
 
 	return c
 }
