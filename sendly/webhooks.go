@@ -8,7 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // WebhookEventType represents the type of webhook event
@@ -21,7 +24,12 @@ const (
 	WebhookEventMessageFailed      WebhookEventType = "message.failed"
 	WebhookEventMessageBounced     WebhookEventType = "message.bounced"
 	WebhookEventMessageRetrying    WebhookEventType = "message.retrying"
+	WebhookEventMessageReceived    WebhookEventType = "message.received"
+	WebhookEventMessageOptOut      WebhookEventType = "message.opt_out"
+	WebhookEventMessageOptIn       WebhookEventType = "message.opt_in"
 	WebhookEventMessageUndelivered WebhookEventType = "message.undelivered"
+
+	signatureToleranceSeconds = 300
 )
 
 // WebhookMessageStatus represents the status of a message in webhook events
@@ -33,30 +41,59 @@ const (
 	WebhookStatusDelivered   WebhookMessageStatus = "delivered"
 	WebhookStatusFailed      WebhookMessageStatus = "failed"
 	WebhookStatusBounced     WebhookMessageStatus = "bounced"
+	WebhookStatusReceived    WebhookMessageStatus = "received"
 	WebhookStatusUndelivered WebhookMessageStatus = "undelivered"
 )
 
 // WebhookMessageData contains the data payload for message webhook events
 type WebhookMessageData struct {
-	MessageID   string               `json:"message_id"`
-	Status      WebhookMessageStatus `json:"status"`
-	To          string               `json:"to"`
-	From        string               `json:"from"`
-	Error       string               `json:"error,omitempty"`
-	ErrorCode   string               `json:"error_code,omitempty"`
-	DeliveredAt string               `json:"delivered_at,omitempty"`
-	FailedAt    string               `json:"failed_at,omitempty"`
-	Segments    int                  `json:"segments"`
-	CreditsUsed int                  `json:"credits_used"`
+	ID             string               `json:"id"`
+	Status         WebhookMessageStatus `json:"status"`
+	To             string               `json:"to"`
+	From           string               `json:"from"`
+	Direction      string               `json:"direction,omitempty"`
+	OrganizationID *string              `json:"organization_id,omitempty"`
+	Text           string               `json:"text,omitempty"`
+	Error          string               `json:"error,omitempty"`
+	ErrorCode      string               `json:"error_code,omitempty"`
+	DeliveredAt    interface{}          `json:"delivered_at,omitempty"`
+	FailedAt       interface{}          `json:"failed_at,omitempty"`
+	CreatedAt      interface{}          `json:"created_at,omitempty"`
+	Segments       int                  `json:"segments"`
+	CreditsUsed    int                  `json:"credits_used"`
+	MessageFormat  string               `json:"message_format,omitempty"`
+	MediaUrls      []string             `json:"media_urls,omitempty"`
+}
+
+// MessageID returns the message ID (backwards-compatible alias for ID)
+func (d *WebhookMessageData) MessageID() string {
+	return d.ID
+}
+
+// rawWebhookEvent is used for flexible JSON unmarshaling
+type rawWebhookEvent struct {
+	ID         string           `json:"id"`
+	Type       WebhookEventType `json:"type"`
+	Data       json.RawMessage  `json:"data"`
+	Created    interface{}      `json:"created"`
+	CreatedAt  interface{}      `json:"created_at"`
+	APIVersion string           `json:"api_version"`
+	Livemode   bool             `json:"livemode"`
+}
+
+// rawDataWrapper handles the data.object nesting
+type rawDataWrapper struct {
+	Object json.RawMessage `json:"object"`
 }
 
 // WebhookEvent represents a webhook event from Sendly
 type WebhookEvent struct {
 	ID         string             `json:"id"`
 	Type       WebhookEventType   `json:"type"`
-	Data       WebhookMessageData `json:"data"`
-	CreatedAt  string             `json:"created_at"`
+	Data       WebhookMessageData `json:"-"`
+	Created    interface{}        `json:"created"`
 	APIVersion string             `json:"api_version"`
+	Livemode   bool               `json:"livemode"`
 }
 
 // ErrInvalidSignature is returned when webhook signature verification fails
@@ -65,28 +102,28 @@ var ErrInvalidSignature = errors.New("invalid webhook signature")
 // Webhooks provides utilities for verifying and parsing Sendly webhook events
 type Webhooks struct{}
 
-// VerifySignature verifies the webhook signature from Sendly
-//
-// Parameters:
-//   - payload: Raw request body as string
-//   - signature: X-Sendly-Signature header value
-//   - secret: Your webhook secret from dashboard
-//
-// # Returns true if signature is valid, false otherwise
-//
-// Example:
-//
-//	isValid := sendly.Webhooks{}.VerifySignature(rawBody, signature, secret)
-func (w Webhooks) VerifySignature(payload, signature, secret string) bool {
+// VerifySignature verifies the webhook signature from Sendly.
+// Pass an empty string for timestamp to skip timestamp verification (backwards compat).
+func (w Webhooks) VerifySignature(payload, signature, secret, timestamp string) bool {
 	if payload == "" || signature == "" || secret == "" {
 		return false
 	}
 
+	signedPayload := payload
+	if timestamp != "" {
+		signedPayload = timestamp + "." + payload
+		ts, err := strconv.ParseFloat(timestamp, 64)
+		if err == nil {
+			if math.Abs(float64(time.Now().Unix())-ts) > signatureToleranceSeconds {
+				return false
+			}
+		}
+	}
+
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(payload))
+	mac.Write([]byte(signedPayload))
 	expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
 
-	// Timing-safe comparison
 	if len(signature) != len(expected) {
 		return false
 	}
@@ -94,54 +131,68 @@ func (w Webhooks) VerifySignature(payload, signature, secret string) bool {
 	return hmac.Equal([]byte(signature), []byte(expected))
 }
 
-// ParseEvent parses and validates a webhook event
-//
-// Parameters:
-//   - payload: Raw request body as string
-//   - signature: X-Sendly-Signature header value
-//   - secret: Your webhook secret from dashboard
-//
-// # Returns the parsed WebhookEvent or an error if signature is invalid
-//
-// Example:
-//
-//	event, err := sendly.Webhooks{}.ParseEvent(rawBody, signature, secret)
-//	if err != nil {
-//	    log.Fatal("Invalid webhook signature")
-//	}
-//	fmt.Printf("Event type: %s\n", event.Type)
-func (w Webhooks) ParseEvent(payload, signature, secret string) (*WebhookEvent, error) {
-	if !w.VerifySignature(payload, signature, secret) {
+// ParseEvent parses and validates a webhook event.
+// Pass an empty string for timestamp to skip timestamp verification.
+func (w Webhooks) ParseEvent(payload, signature, secret, timestamp string) (*WebhookEvent, error) {
+	if !w.VerifySignature(payload, signature, secret, timestamp) {
 		return nil, ErrInvalidSignature
 	}
 
-	var event WebhookEvent
-	if err := json.Unmarshal([]byte(payload), &event); err != nil {
+	var raw rawWebhookEvent
+	if err := json.Unmarshal([]byte(payload), &raw); err != nil {
 		return nil, fmt.Errorf("failed to parse webhook payload: %w", err)
 	}
 
-	// Basic validation
-	if event.ID == "" || event.Type == "" || event.CreatedAt == "" {
+	if raw.ID == "" || raw.Type == "" {
 		return nil, errors.New("invalid event structure")
 	}
 
-	return &event, nil
+	var msgData WebhookMessageData
+	var wrapper rawDataWrapper
+	if err := json.Unmarshal(raw.Data, &wrapper); err == nil && wrapper.Object != nil {
+		if err := json.Unmarshal(wrapper.Object, &msgData); err != nil {
+			return nil, fmt.Errorf("failed to parse webhook data.object: %w", err)
+		}
+	} else {
+		if err := json.Unmarshal(raw.Data, &msgData); err != nil {
+			return nil, fmt.Errorf("failed to parse webhook data: %w", err)
+		}
+		if msgData.ID == "" {
+			var legacy struct {
+				MessageID string `json:"message_id"`
+			}
+			json.Unmarshal(raw.Data, &legacy)
+			if legacy.MessageID != "" {
+				msgData.ID = legacy.MessageID
+			}
+		}
+	}
+
+	created := raw.Created
+	if created == nil {
+		created = raw.CreatedAt
+	}
+
+	return &WebhookEvent{
+		ID:         raw.ID,
+		Type:       raw.Type,
+		Data:       msgData,
+		Created:    created,
+		APIVersion: raw.APIVersion,
+		Livemode:   raw.Livemode,
+	}, nil
 }
 
-// GenerateSignature generates a webhook signature for testing purposes
-//
-// Parameters:
-//   - payload: The payload to sign
-//   - secret: The secret to use for signing
-//
-// Returns the signature in the format "sha256=..."
-//
-// Example:
-//
-//	signature := sendly.Webhooks{}.GenerateSignature(testPayload, "test_secret")
-func (w Webhooks) GenerateSignature(payload, secret string) string {
+// GenerateSignature generates a webhook signature for testing purposes.
+// Pass an empty string for timestamp to skip timestamp in signature.
+func (w Webhooks) GenerateSignature(payload, secret, timestamp string) string {
+	signedPayload := payload
+	if timestamp != "" {
+		signedPayload = timestamp + "." + payload
+	}
+
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(payload))
+	mac.Write([]byte(signedPayload))
 	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
 
@@ -151,7 +202,6 @@ func constantTimeCompare(a, b string) bool {
 		return false
 	}
 
-	// Remove sha256= prefix if present
 	a = strings.TrimPrefix(a, "sha256=")
 	b = strings.TrimPrefix(b, "sha256=")
 
