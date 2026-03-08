@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"time"
 
@@ -37,6 +38,8 @@ type Client struct {
 	Timeout time.Duration
 	// Debug enables debug logging.
 	Debug bool
+	// OrganizationID is the organization ID for multi-workspace support.
+	OrganizationID string
 
 	// Messages provides access to message operations.
 	Messages *MessagesService
@@ -99,6 +102,13 @@ func WithDebug(debug bool) ClientOption {
 	}
 }
 
+// WithOrganizationID sets the organization ID.
+func WithOrganizationID(id string) ClientOption {
+	return func(c *Client) {
+		c.OrganizationID = id
+	}
+}
+
 // NewClient creates a new Sendly API client.
 func NewClient(apiKey string, opts ...ClientOption) *Client {
 	c := &Client{
@@ -114,6 +124,10 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 
 	for _, opt := range opts {
 		opt(c)
+	}
+
+	if c.OrganizationID == "" {
+		c.OrganizationID = os.Getenv("SENDLY_ORG_ID")
 	}
 
 	c.Messages = &MessagesService{client: c}
@@ -213,6 +227,9 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "sendly-go/"+Version)
+	if c.OrganizationID != "" {
+		req.Header.Set("X-Organization-Id", c.OrganizationID)
+	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
