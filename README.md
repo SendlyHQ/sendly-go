@@ -370,14 +370,14 @@ result, err := client.Enterprise.Provision(ctx, sendly.ProvisionWorkspaceRequest
     Name:                    "Acme Insurance - Austin",
     SourceWorkspaceID:       "ws_verified",
     CreditAmount:            5000,
-    CreditSourceWorkspaceID: "ws_pool",
+    CreditSourceWorkspaceID: "SOURCE_WORKSPACE_ID",
     KeyName:                 "Production",
     KeyType:                 "live",
     GenerateOptInPage:       &generateOptIn,
 })
 
 fmt.Println(result.Workspace.ID)
-fmt.Println(result.APIKey.RawKey)
+fmt.Println(result.Key.Key)
 ```
 
 Three provisioning modes:
@@ -403,7 +403,7 @@ _ = client.Enterprise.Workspaces.Delete(ctx, "ws_xxx")
 result, _ := client.Enterprise.Workspaces.TransferCredits(ctx, "ws_dest", "ws_source", 5000)
 
 key, _ := client.Enterprise.Workspaces.CreateKey(ctx, "ws_xxx", "Production", "live")
-fmt.Println(key.RawKey)
+fmt.Println(key.Key)
 
 _ = client.Enterprise.Workspaces.RevokeKey(ctx, "ws_xxx", "key_abc")
 ```
