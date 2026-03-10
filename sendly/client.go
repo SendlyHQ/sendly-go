@@ -145,6 +145,7 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 		Analytics:  &AnalyticsService{client: c},
 		Settings:   &SettingsService{client: c},
 		Billing:    &BillingService{client: c},
+		Credits:    &CreditsService{client: c},
 	}
 
 	return c

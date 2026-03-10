@@ -14,6 +14,11 @@ type EnterpriseService struct {
 	Analytics  *AnalyticsService
 	Settings   *SettingsService
 	Billing    *BillingService
+	Credits    *CreditsService
+}
+
+type CreditsService struct {
+	client *Client
 }
 
 type WorkspacesService struct {
@@ -561,6 +566,33 @@ func (s *SettingsService) UpdateAutoTopUp(ctx context.Context, opts *UpdateAutoT
 
 	var resp AutoTopUpSettings
 	if err := s.client.request(ctx, "PUT", "/enterprise/settings/auto-top-up", opts, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (s *CreditsService) Get(ctx context.Context) (*PoolCredits, error) {
+	var resp PoolCredits
+	if err := s.client.request(ctx, "GET", "/enterprise/credits/pool", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (s *CreditsService) Deposit(ctx context.Context, amount int, description string) (*PoolCredits, error) {
+	if amount <= 0 {
+		return nil, &ValidationError{APIError: APIError{Message: "amount must be a positive integer"}}
+	}
+
+	body := map[string]interface{}{
+		"amount": amount,
+	}
+	if description != "" {
+		body["description"] = description
+	}
+
+	var resp PoolCredits
+	if err := s.client.request(ctx, "POST", "/enterprise/credits/pool/deposit", body, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

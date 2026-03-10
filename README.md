@@ -9,7 +9,7 @@
 
 # Sendly Go SDK
 
-Official Go SDK for the Sendly SMS & MMS API.
+Official Go SDK for the Sendly SMS API.
 
 ## Installation
 
@@ -44,8 +44,7 @@ func main() {
         log.Fatal(err)
     }
 
-    fmt.Printf("Message sent: %s
-", message.ID)
+    fmt.Printf("Message sent: %s\n", message.ID)
 }
 ```
 
@@ -121,12 +120,9 @@ message, err := client.Messages.Send(ctx, &sendly.SendMessageRequest{
     },
 })
 
-fmt.Printf("ID: %s
-", message.ID)
-fmt.Printf("Status: %s
-", message.Status)
-fmt.Printf("Credits: %d
-", message.CreditsUsed)
+fmt.Printf("ID: %s\n", message.ID)
+fmt.Printf("Status: %s\n", message.Status)
+fmt.Printf("Credits: %d\n", message.CreditsUsed)
 ```
 
 ### List Messages
@@ -143,8 +139,7 @@ if err != nil {
 }
 
 for _, msg := range resp.Data {
-    fmt.Printf("%s: %s (%s)
-", msg.ID, msg.To, msg.Status)
+    fmt.Printf("%s: %s (%s)\n", msg.ID, msg.To, msg.Status)
 }
 ```
 
@@ -156,12 +151,9 @@ if err != nil {
     log.Fatal(err)
 }
 
-fmt.Printf("To: %s
-", message.To)
-fmt.Printf("Text: %s
-", message.Text)
-fmt.Printf("Status: %s
-", message.Status)
+fmt.Printf("To: %s\n", message.To)
+fmt.Printf("Text: %s\n", message.Text)
+fmt.Printf("Status: %s\n", message.Status)
 ```
 
 ### Scheduling Messages
@@ -177,16 +169,13 @@ if err != nil {
     log.Fatal(err)
 }
 
-fmt.Printf("Scheduled: %s
-", scheduled.ID)
-fmt.Printf("Will send at: %s
-", scheduled.ScheduledAt)
+fmt.Printf("Scheduled: %s\n", scheduled.ID)
+fmt.Printf("Will send at: %s\n", scheduled.ScheduledAt)
 
 // List scheduled messages
 resp, err := client.Messages.ListScheduled(ctx, nil)
 for _, msg := range resp.Data {
-    fmt.Printf("%s: %s
-", msg.ID, msg.ScheduledAt)
+    fmt.Printf("%s: %s\n", msg.ID, msg.ScheduledAt)
 }
 
 // Get a specific scheduled message
@@ -194,8 +183,7 @@ msg, err := client.Messages.GetScheduled(ctx, "sched_xxx")
 
 // Cancel a scheduled message (refunds credits)
 result, err := client.Messages.CancelScheduled(ctx, "sched_xxx")
-fmt.Printf("Refunded: %d credits
-", result.CreditsRefunded)
+fmt.Printf("Refunded: %d credits\n", result.CreditsRefunded)
 ```
 
 ### Batch Messages
@@ -213,14 +201,10 @@ if err != nil {
     log.Fatal(err)
 }
 
-fmt.Printf("Batch ID: %s
-", batch.BatchID)
-fmt.Printf("Queued: %d
-", batch.Queued)
-fmt.Printf("Failed: %d
-", batch.Failed)
-fmt.Printf("Credits used: %d
-", batch.CreditsUsed)
+fmt.Printf("Batch ID: %s\n", batch.BatchID)
+fmt.Printf("Queued: %d\n", batch.Queued)
+fmt.Printf("Failed: %d\n", batch.Failed)
+fmt.Printf("Credits used: %d\n", batch.CreditsUsed)
 
 // Get batch status
 status, err := client.Messages.GetBatch(ctx, "batch_xxx")
@@ -235,10 +219,8 @@ preview, err := client.Messages.PreviewBatch(ctx, &sendly.SendBatchRequest{
         {To: "+447700900123", Text: "Hello UK!"},
     },
 })
-fmt.Printf("Total credits needed: %d
-", preview.TotalCredits)
-fmt.Printf("Valid: %d, Invalid: %d
-", preview.Valid, preview.Invalid)
+fmt.Printf("Total credits needed: %d\n", preview.TotalCredits)
+fmt.Printf("Valid: %d, Invalid: %d\n", preview.Valid, preview.Invalid)
 ```
 
 ## Webhooks
@@ -249,10 +231,8 @@ webhook, err := client.Webhooks.Create(ctx, &sendly.CreateWebhookRequest{
     URL:    "https://example.com/webhooks/sendly",
     Events: []string{"message.delivered", "message.failed"},
 })
-fmt.Printf("Webhook ID: %s
-", webhook.ID)
-fmt.Printf("Secret: %s
-", webhook.Secret) // Store securely!
+fmt.Printf("Webhook ID: %s\n", webhook.ID)
+fmt.Printf("Secret: %s\n", webhook.Secret) // Store securely!
 
 // List all webhooks
 webhooks, err := client.Webhooks.List(ctx)
@@ -281,30 +261,24 @@ err = client.Webhooks.Delete(ctx, "whk_xxx")
 ```go
 // Get account information
 account, err := client.Account.Get(ctx)
-fmt.Printf("Email: %s
-", account.Email)
+fmt.Printf("Email: %s\n", account.Email)
 
 // Check credit balance
 credits, err := client.Account.GetCredits(ctx)
-fmt.Printf("Available: %d credits
-", credits.AvailableBalance)
-fmt.Printf("Reserved: %d credits
-", credits.ReservedBalance)
-fmt.Printf("Total: %d credits
-", credits.Balance)
+fmt.Printf("Available: %d credits\n", credits.AvailableBalance)
+fmt.Printf("Reserved: %d credits\n", credits.ReservedBalance)
+fmt.Printf("Total: %d credits\n", credits.Balance)
 
 // View credit transaction history
 transactions, err := client.Account.GetCreditTransactions(ctx)
 for _, tx := range transactions.Data {
-    fmt.Printf("%s: %d credits - %s
-", tx.Type, tx.Amount, tx.Description)
+    fmt.Printf("%s: %d credits - %s\n", tx.Type, tx.Amount, tx.Description)
 }
 
 // List API keys
 keys, err := client.Account.ListAPIKeys(ctx)
 for _, key := range keys.Data {
-    fmt.Printf("%s: %s*** (%s)
-", key.Name, key.Prefix, key.Type)
+    fmt.Printf("%s: %s*** (%s)\n", key.Name, key.Prefix, key.Type)
 }
 
 // Create a new API key
@@ -313,8 +287,7 @@ newKey, err := client.Account.CreateAPIKey(ctx, &sendly.CreateAPIKeyRequest{
     Type:   "live",
     Scopes: []string{"sms:send", "sms:read"},
 })
-fmt.Printf("New key: %s
-", newKey.Key) // Only shown once!
+fmt.Printf("New key: %s\n", newKey.Key) // Only shown once!
 
 // Revoke an API key
 err = client.Account.RevokeAPIKey(ctx, "key_xxx")

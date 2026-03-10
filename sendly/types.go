@@ -727,6 +727,12 @@ type WorkspaceCredits struct {
 	LifetimeCredits int `json:"lifetimeCredits"`
 }
 
+type PoolCredits struct {
+	Balance         int `json:"balance"`
+	LifetimeCredits int `json:"lifetimeCredits"`
+	ReservedBalance int `json:"reservedBalance"`
+}
+
 type WorkspaceKey struct {
 	ID         string   `json:"id"`
 	Name       string   `json:"name"`
