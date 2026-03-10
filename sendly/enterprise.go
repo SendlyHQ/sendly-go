@@ -573,7 +573,7 @@ func (s *SettingsService) UpdateAutoTopUp(ctx context.Context, opts *UpdateAutoT
 
 func (s *CreditsService) Get(ctx context.Context) (*PoolCredits, error) {
 	var resp PoolCredits
-	if err := s.client.request(ctx, "GET", "/enterprise/credits/pool", nil, &resp); err != nil {
+	if err := s.client.request(ctx, "GET", "/enterprise/credits", nil, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -592,7 +592,7 @@ func (s *CreditsService) Deposit(ctx context.Context, amount int, description st
 	}
 
 	var resp PoolCredits
-	if err := s.client.request(ctx, "POST", "/enterprise/credits/pool/deposit", body, &resp); err != nil {
+	if err := s.client.request(ctx, "POST", "/enterprise/credits/deposit", body, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
