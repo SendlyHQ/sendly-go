@@ -850,6 +850,13 @@ type EnterpriseWebhookTestResult struct {
 	Error      string `json:"error,omitempty"`
 }
 
+type EnterpriseWebhookRotateSecretResponse struct {
+	Success   bool   `json:"success"`
+	Secret    string `json:"secret"`
+	RotatedAt string `json:"rotated_at"`
+	Message   string `json:"message"`
+}
+
 type AnalyticsOverview struct {
 	TotalMessages     int `json:"totalMessages"`
 	DeliveredMessages int `json:"deliveredMessages"`

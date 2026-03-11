@@ -472,7 +472,7 @@ func (s *EnterpriseWebhooksService) Set(ctx context.Context, webhookURL string) 
 
 	body := map[string]string{"url": webhookURL}
 	var resp EnterpriseWebhook
-	if err := s.client.request(ctx, "PUT", "/enterprise/webhooks", body, &resp); err != nil {
+	if err := s.client.request(ctx, "POST", "/enterprise/webhooks", body, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -493,6 +493,14 @@ func (s *EnterpriseWebhooksService) Delete(ctx context.Context) error {
 func (s *EnterpriseWebhooksService) Test(ctx context.Context) (*EnterpriseWebhookTestResult, error) {
 	var resp EnterpriseWebhookTestResult
 	if err := s.client.request(ctx, "POST", "/enterprise/webhooks/test", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (s *EnterpriseWebhooksService) RotateSecret(ctx context.Context) (*EnterpriseWebhookRotateSecretResponse, error) {
+	var resp EnterpriseWebhookRotateSecretResponse
+	if err := s.client.request(ctx, "POST", "/enterprise/webhooks/rotate-secret", nil, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
