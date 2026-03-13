@@ -29,6 +29,14 @@ const (
 	WebhookEventMessageOptIn       WebhookEventType = "message.opt_in"
 	WebhookEventMessageUndelivered WebhookEventType = "message.undelivered"
 
+	WebhookEventVerificationCreated        WebhookEventType = "verification.created"
+	WebhookEventVerificationDelivered      WebhookEventType = "verification.delivered"
+	WebhookEventVerificationVerified       WebhookEventType = "verification.verified"
+	WebhookEventVerificationExpired        WebhookEventType = "verification.expired"
+	WebhookEventVerificationFailed         WebhookEventType = "verification.failed"
+	WebhookEventVerificationResent         WebhookEventType = "verification.resent"
+	WebhookEventVerificationDeliveryFailed WebhookEventType = "verification.delivery_failed"
+
 	signatureToleranceSeconds = 300
 )
 
@@ -63,6 +71,25 @@ type WebhookMessageData struct {
 	CreditsUsed    int                  `json:"credits_used"`
 	MessageFormat  string               `json:"message_format,omitempty"`
 	MediaUrls      []string             `json:"media_urls,omitempty"`
+	RetryCount     int                    `json:"retry_count,omitempty"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+}
+
+type WebhookVerificationData struct {
+	ID             string                 `json:"id"`
+	OrganizationID *string                `json:"organization_id,omitempty"`
+	Phone          string                 `json:"phone"`
+	Status         string                 `json:"status"`
+	DeliveryStatus string                 `json:"delivery_status"`
+	Attempts       int                    `json:"attempts"`
+	MaxAttempts    int                    `json:"max_attempts"`
+	ExpiresAt      interface{}            `json:"expires_at,omitempty"`
+	VerifiedAt     interface{}            `json:"verified_at,omitempty"`
+	CreatedAt      interface{}            `json:"created_at,omitempty"`
+	AppName        string                 `json:"app_name,omitempty"`
+	TemplateID     string                 `json:"template_id,omitempty"`
+	ProfileID      string                 `json:"profile_id,omitempty"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // MessageID returns the message ID (backwards-compatible alias for ID)
