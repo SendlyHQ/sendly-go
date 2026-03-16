@@ -40,6 +40,24 @@ type Message struct {
 	RetryCount int `json:"retryCount,omitempty"`
 	// Metadata contains custom user-provided metadata.
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	// AiMetadata contains AI classification metadata for inbound messages.
+	AiMetadata *AiMetadata `json:"aiMetadata,omitempty"`
+}
+
+// AiMetadata contains AI classification results for an inbound message.
+type AiMetadata struct {
+	// Intent is the classified intent of the message.
+	Intent string `json:"intent"`
+	// IntentConfidence is the confidence score for the intent (0-1).
+	IntentConfidence float64 `json:"intentConfidence"`
+	// Sentiment is the classified sentiment of the message.
+	Sentiment string `json:"sentiment"`
+	// SentimentConfidence is the confidence score for the sentiment (0-1).
+	SentimentConfidence float64 `json:"sentimentConfidence"`
+	// ClassifiedAt is the ISO 8601 timestamp of when classification occurred.
+	ClassifiedAt string `json:"classifiedAt"`
+	// Model is the AI model used for classification.
+	Model string `json:"model"`
 }
 
 // MessageStatus represents the status of a message.
