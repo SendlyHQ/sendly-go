@@ -24,7 +24,7 @@ type Message struct {
 	IsSandbox bool `json:"isSandbox,omitempty"`
 	// SenderType indicates how the message was sent (number_pool, alphanumeric, sandbox).
 	SenderType string `json:"senderType,omitempty"`
-	// TelnyxMessageID is the Telnyx message ID for tracking.
+	// TelnyxMessageID is the carrier message ID for tracking.
 	TelnyxMessageID *string `json:"telnyxMessageId,omitempty"`
 	// Warning contains a warning message (e.g., when 'from' is ignored).
 	Warning *string `json:"warning,omitempty"`
@@ -1103,4 +1103,123 @@ type QuotaSettings struct {
 
 type UpdateQuotaRequest struct {
 	MonthlyMessageQuota *int `json:"monthlyMessageQuota"`
+}
+
+// ============================================================================
+// Conversations
+// ============================================================================
+
+// ConversationStatus represents the status of a conversation.
+type ConversationStatus string
+
+const (
+	// ConversationStatusActive means the conversation is active.
+	ConversationStatusActive ConversationStatus = "active"
+	// ConversationStatusClosed means the conversation is closed.
+	ConversationStatusClosed ConversationStatus = "closed"
+)
+
+// Conversation represents an SMS conversation thread.
+type Conversation struct {
+	// ID is the unique conversation identifier.
+	ID string `json:"id"`
+	// PhoneNumber is the phone number of the contact.
+	PhoneNumber string `json:"phoneNumber"`
+	// Status is the conversation status.
+	Status ConversationStatus `json:"status"`
+	// UnreadCount is the number of unread messages.
+	UnreadCount int `json:"unreadCount"`
+	// MessageCount is the total number of messages.
+	MessageCount int `json:"messageCount"`
+	// LastMessageText is the text of the last message.
+	LastMessageText *string `json:"lastMessageText"`
+	// LastMessageAt is when the last message was sent/received.
+	LastMessageAt *string `json:"lastMessageAt"`
+	// LastMessageDirection is the direction of the last message.
+	LastMessageDirection *string `json:"lastMessageDirection"`
+	// Metadata contains custom metadata.
+	Metadata map[string]interface{} `json:"metadata"`
+	// Tags contains conversation tags.
+	Tags []string `json:"tags"`
+	// ContactID is the associated contact ID.
+	ContactID *string `json:"contactId"`
+	// CreatedAt is when the conversation was created.
+	CreatedAt string `json:"createdAt"`
+	// UpdatedAt is when the conversation was last updated.
+	UpdatedAt string `json:"updatedAt"`
+}
+
+// ConversationPagination contains pagination info for conversation lists.
+type ConversationPagination struct {
+	// Total is the total number of conversations.
+	Total int `json:"total"`
+	// Limit is the maximum number of conversations returned.
+	Limit int `json:"limit"`
+	// Offset is the number of conversations skipped.
+	Offset int `json:"offset"`
+	// HasMore indicates if more conversations are available.
+	HasMore bool `json:"hasMore"`
+}
+
+// ConversationListResponse is the response from listing conversations.
+type ConversationListResponse struct {
+	// Data contains the list of conversations.
+	Data []Conversation `json:"data"`
+	// Pagination contains pagination info.
+	Pagination ConversationPagination `json:"pagination"`
+}
+
+// ConversationMessages contains messages within a conversation.
+type ConversationMessages struct {
+	// Data contains the list of messages.
+	Data []Message `json:"data"`
+	// Pagination contains pagination info.
+	Pagination ConversationPagination `json:"pagination"`
+}
+
+// ConversationWithMessages is a conversation with its messages.
+type ConversationWithMessages struct {
+	Conversation
+	// Messages contains the conversation messages (when include_messages=true).
+	Messages *ConversationMessages `json:"messages,omitempty"`
+}
+
+// ListConversationsRequest is the request to list conversations.
+type ListConversationsRequest struct {
+	// Limit is the maximum number of conversations to return.
+	Limit int
+	// Offset is the number of conversations to skip.
+	Offset int
+	// Status filters by conversation status.
+	Status ConversationStatus
+}
+
+// GetConversationRequest is the request to get a single conversation.
+type GetConversationRequest struct {
+	// IncludeMessages includes messages in the response.
+	IncludeMessages bool
+	// MessageLimit is the maximum number of messages to return.
+	MessageLimit int
+	// MessageOffset is the number of messages to skip.
+	MessageOffset int
+}
+
+// UpdateConversationRequest is the request to update a conversation.
+type UpdateConversationRequest struct {
+	// Metadata is the new metadata.
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	// Tags is the new tags.
+	Tags []string `json:"tags,omitempty"`
+}
+
+// ReplyToConversationRequest is the request to reply to a conversation.
+type ReplyToConversationRequest struct {
+	// Text is the message content (required).
+	Text string `json:"text"`
+	// MessageType is the message type for compliance.
+	MessageType MessageType `json:"messageType,omitempty"`
+	// Metadata is custom JSON metadata.
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	// MediaUrls is a list of media URLs to attach.
+	MediaUrls []string `json:"mediaUrls,omitempty"`
 }
