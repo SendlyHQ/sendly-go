@@ -1241,3 +1241,151 @@ type ReplyToConversationRequest struct {
 	// MediaUrls is a list of media URLs to attach.
 	MediaUrls []string `json:"mediaUrls,omitempty"`
 }
+
+// AddLabelsRequest is the request to add labels to a conversation.
+type AddLabelsRequest struct {
+	// LabelIds is the list of label IDs to add.
+	LabelIds []string `json:"labelIds"`
+}
+
+// ============================================================================
+// Labels
+// ============================================================================
+
+// Label represents a conversation label.
+type Label struct {
+	// ID is the unique label identifier.
+	ID string `json:"id"`
+	// Name is the label name.
+	Name string `json:"name"`
+	// Color is the label color.
+	Color string `json:"color"`
+	// Description is the label description.
+	Description *string `json:"description,omitempty"`
+	// CreatedAt is when the label was created.
+	CreatedAt string `json:"createdAt"`
+}
+
+// LabelListResponse is the response from listing labels.
+type LabelListResponse struct {
+	// Data contains the list of labels.
+	Data []Label `json:"data"`
+}
+
+// CreateLabelRequest is the request to create a label.
+type CreateLabelRequest struct {
+	// Name is the label name (required).
+	Name string `json:"name"`
+	// Color is the label color.
+	Color string `json:"color,omitempty"`
+	// Description is the label description.
+	Description string `json:"description,omitempty"`
+}
+
+// ============================================================================
+// Drafts
+// ============================================================================
+
+// DraftStatus represents the status of a message draft.
+type DraftStatus string
+
+const (
+	// DraftStatusPending means the draft is awaiting review.
+	DraftStatusPending DraftStatus = "pending"
+	// DraftStatusApproved means the draft has been approved.
+	DraftStatusApproved DraftStatus = "approved"
+	// DraftStatusRejected means the draft has been rejected.
+	DraftStatusRejected DraftStatus = "rejected"
+	// DraftStatusSent means the draft has been sent.
+	DraftStatusSent DraftStatus = "sent"
+	// DraftStatusFailed means the draft failed to send.
+	DraftStatusFailed DraftStatus = "failed"
+)
+
+// MessageDraft represents a message draft.
+type MessageDraft struct {
+	// ID is the unique draft identifier.
+	ID string `json:"id"`
+	// ConversationId is the associated conversation ID.
+	ConversationId string `json:"conversationId"`
+	// Text is the draft message content.
+	Text string `json:"text"`
+	// MediaUrls is a list of media URLs.
+	MediaUrls []string `json:"mediaUrls,omitempty"`
+	// Metadata contains custom metadata.
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	// Status is the draft status.
+	Status DraftStatus `json:"status"`
+	// Source indicates the origin of the draft.
+	Source *string `json:"source,omitempty"`
+	// CreatedBy is the user who created the draft.
+	CreatedBy *string `json:"createdBy,omitempty"`
+	// ReviewedBy is the user who reviewed the draft.
+	ReviewedBy *string `json:"reviewedBy,omitempty"`
+	// ReviewedAt is when the draft was reviewed.
+	ReviewedAt *string `json:"reviewedAt,omitempty"`
+	// RejectionReason is the reason for rejection.
+	RejectionReason *string `json:"rejectionReason,omitempty"`
+	// MessageId is the ID of the sent message (if sent).
+	MessageId *string `json:"messageId,omitempty"`
+	// CreatedAt is when the draft was created.
+	CreatedAt string `json:"createdAt"`
+	// UpdatedAt is when the draft was last updated.
+	UpdatedAt string `json:"updatedAt"`
+}
+
+// DraftPagination contains pagination info for draft lists.
+type DraftPagination struct {
+	// Total is the total number of drafts.
+	Total int `json:"total"`
+}
+
+// DraftListResponse is the response from listing drafts.
+type DraftListResponse struct {
+	// Data contains the list of drafts.
+	Data []MessageDraft `json:"data"`
+	// Pagination contains pagination info.
+	Pagination DraftPagination `json:"pagination"`
+}
+
+// CreateDraftRequest is the request to create a draft.
+type CreateDraftRequest struct {
+	// ConversationId is the associated conversation ID (required).
+	ConversationId string `json:"conversationId"`
+	// Text is the draft message content (required).
+	Text string `json:"text"`
+	// MediaUrls is a list of media URLs.
+	MediaUrls []string `json:"mediaUrls,omitempty"`
+	// Metadata contains custom metadata.
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	// Source indicates the origin of the draft.
+	Source string `json:"source,omitempty"`
+}
+
+// UpdateDraftRequest is the request to update a draft.
+type UpdateDraftRequest struct {
+	// Text is the updated draft message content.
+	Text string `json:"text,omitempty"`
+	// MediaUrls is the updated list of media URLs.
+	MediaUrls []string `json:"mediaUrls,omitempty"`
+	// Metadata is the updated custom metadata.
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// RejectDraftRequest is the request to reject a draft.
+type RejectDraftRequest struct {
+	// Reason is the rejection reason.
+	Reason string `json:"reason,omitempty"`
+}
+
+// ListDraftsRequest is the request to list drafts.
+type ListDraftsRequest struct {
+	// ConversationId filters by conversation ID.
+	ConversationId string
+	// Status filters by draft status.
+	Status DraftStatus
+	// Limit is the maximum number of drafts to return.
+	Limit int
+	// Offset is the number of drafts to skip.
+	Offset int
+}

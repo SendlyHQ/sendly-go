@@ -21,7 +21,7 @@ const (
 	// DefaultTimeout is the default HTTP client timeout.
 	DefaultTimeout = 30 * time.Second
 	// Version is the SDK version.
-	Version = "3.22.0"
+	Version = "3.23.0"
 )
 
 // Client is the Sendly API client.
@@ -59,6 +59,10 @@ type Client struct {
 	Media *MediaService
 	// Conversations provides access to conversation operations.
 	Conversations *ConversationsService
+	// Labels provides access to label operations.
+	Labels *LabelsService
+	// Drafts provides access to draft operations.
+	Drafts *DraftsService
 	// Enterprise provides access to enterprise management operations.
 	Enterprise *EnterpriseService
 
@@ -140,6 +144,8 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 	c.Campaigns = &CampaignsService{client: c}
 	c.Contacts = &ContactsService{client: c, Lists: &ContactListsService{client: c}}
 	c.Conversations = &ConversationsService{client: c}
+	c.Labels = &LabelsService{client: c}
+	c.Drafts = &DraftsService{client: c}
 	c.Media = &MediaService{client: c}
 	c.Enterprise = &EnterpriseService{
 		client:     c,

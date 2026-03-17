@@ -162,3 +162,45 @@ func (s *ConversationsService) MarkRead(ctx context.Context, id string) (*Conver
 
 	return &resp, nil
 }
+
+// AddLabels adds labels to a conversation.
+func (s *ConversationsService) AddLabels(ctx context.Context, id string, labelIds []string) (*Conversation, error) {
+	if id == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "conversation ID is required"}}
+	}
+	if len(labelIds) == 0 {
+		return nil, &ValidationError{APIError: APIError{Message: "at least one label ID is required"}}
+	}
+
+	path := "/conversations/" + url.PathEscape(id) + "/labels"
+
+	body := &AddLabelsRequest{LabelIds: labelIds}
+
+	var resp Conversation
+	err := s.client.request(ctx, "POST", path, body, &resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
+}
+
+// RemoveLabel removes a label from a conversation.
+func (s *ConversationsService) RemoveLabel(ctx context.Context, id string, labelId string) (*Conversation, error) {
+	if id == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "conversation ID is required"}}
+	}
+	if labelId == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "label ID is required"}}
+	}
+
+	path := "/conversations/" + url.PathEscape(id) + "/labels/" + url.PathEscape(labelId)
+
+	var resp Conversation
+	err := s.client.request(ctx, "DELETE", path, nil, &resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
+}
