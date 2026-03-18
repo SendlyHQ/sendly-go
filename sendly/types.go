@@ -1123,6 +1123,22 @@ type UpdateQuotaRequest struct {
 	MonthlyMessageQuota *int `json:"monthlyMessageQuota"`
 }
 
+type GenerateBusinessPageRequest struct {
+	BusinessName    string `json:"businessName"`
+	UseCase         string `json:"useCase,omitempty"`
+	UseCaseSummary  string `json:"useCaseSummary,omitempty"`
+	ContactEmail    string `json:"contactEmail,omitempty"`
+	ContactPhone    string `json:"contactPhone,omitempty"`
+	BusinessAddress string `json:"businessAddress,omitempty"`
+	SocialURL       string `json:"socialUrl,omitempty"`
+}
+
+type GenerateBusinessPageResponse struct {
+	Slug   string `json:"slug"`
+	URL    string `json:"url"`
+	PageID string `json:"pageId"`
+}
+
 // ============================================================================
 // Conversations
 // ============================================================================

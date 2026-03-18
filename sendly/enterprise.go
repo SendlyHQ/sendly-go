@@ -61,6 +61,18 @@ func (s *EnterpriseService) Provision(ctx context.Context, opts *ProvisionWorksp
 	return &resp, nil
 }
 
+func (s *EnterpriseService) GenerateBusinessPage(ctx context.Context, opts *GenerateBusinessPageRequest) (*GenerateBusinessPageResponse, error) {
+	if opts == nil || opts.BusinessName == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "businessName is required"}}
+	}
+
+	var resp GenerateBusinessPageResponse
+	if err := s.client.request(ctx, "POST", "/verification/business-page/generate", opts, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 func (s *WorkspacesService) Create(ctx context.Context, name, description string) (*EnterpriseWorkspace, error) {
 	if name == "" {
 		return nil, &ValidationError{APIError: APIError{Message: "name is required"}}
