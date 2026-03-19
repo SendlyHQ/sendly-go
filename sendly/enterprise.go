@@ -67,7 +67,7 @@ func (s *EnterpriseService) GenerateBusinessPage(ctx context.Context, opts *Gene
 	}
 
 	var resp GenerateBusinessPageResponse
-	if err := s.client.request(ctx, "POST", "/verification/business-page/generate", opts, &resp); err != nil {
+	if err := s.client.request(ctx, "POST", "/enterprise/business-page/generate", opts, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
