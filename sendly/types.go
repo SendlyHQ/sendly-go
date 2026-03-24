@@ -1139,6 +1139,11 @@ type GenerateBusinessPageResponse struct {
 	PageID string `json:"pageId"`
 }
 
+type VerificationDocumentUploadResponse struct {
+	URL string `json:"url"`
+	ID  string `json:"id"`
+}
+
 // ============================================================================
 // Conversations
 // ============================================================================

@@ -1,9 +1,15 @@
 package sendly
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"mime/multipart"
+	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 )
 
@@ -71,6 +77,83 @@ func (s *EnterpriseService) GenerateBusinessPage(ctx context.Context, opts *Gene
 		return nil, err
 	}
 	return &resp, nil
+}
+
+func (s *EnterpriseService) UploadVerificationDocument(ctx context.Context, filename string, file io.Reader, workspaceID, verificationID string) (*VerificationDocumentUploadResponse, error) {
+	if file == nil {
+		return nil, &ValidationError{APIError: APIError{Message: "file is required"}}
+	}
+	if filename == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "filename is required"}}
+	}
+
+	if err := s.client.rateLimiter.Wait(ctx); err != nil {
+		return nil, &NetworkError{Message: "rate limiter error", Err: err}
+	}
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	part, err := writer.CreateFormFile("file", filepath.Base(filename))
+	if err != nil {
+		return nil, &NetworkError{Message: "failed to create form file", Err: err}
+	}
+
+	if _, err := io.Copy(part, file); err != nil {
+		return nil, &NetworkError{Message: "failed to write file data", Err: err}
+	}
+
+	if workspaceID != "" {
+		if err := writer.WriteField("workspaceId", workspaceID); err != nil {
+			return nil, &NetworkError{Message: "failed to write workspaceId field", Err: err}
+		}
+	}
+	if verificationID != "" {
+		if err := writer.WriteField("verificationId", verificationID); err != nil {
+			return nil, &NetworkError{Message: "failed to write verificationId field", Err: err}
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		return nil, &NetworkError{Message: "failed to close multipart writer", Err: err}
+	}
+
+	fullURL := s.client.BaseURL + "/enterprise/verification-document/upload"
+
+	req, err := http.NewRequestWithContext(ctx, "POST", fullURL, &buf)
+	if err != nil {
+		return nil, &NetworkError{Message: "failed to create request", Err: err}
+	}
+
+	req.Header.Set("Authorization", "Bearer "+s.client.APIKey)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "sendly-go/"+Version)
+	if s.client.OrganizationID != "" {
+		req.Header.Set("X-Organization-Id", s.client.OrganizationID)
+	}
+
+	resp, err := s.client.HTTPClient.Do(req)
+	if err != nil {
+		return nil, &NetworkError{Message: "request failed", Err: err}
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, &NetworkError{Message: "failed to read response body", Err: err}
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, s.client.handleErrorResponse(resp, respBody)
+	}
+
+	var result VerificationDocumentUploadResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, &NetworkError{Message: "failed to unmarshal response", Err: err}
+	}
+
+	return &result, nil
 }
 
 func (s *WorkspacesService) Create(ctx context.Context, name, description string) (*EnterpriseWorkspace, error) {
