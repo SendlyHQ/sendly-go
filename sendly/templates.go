@@ -157,3 +157,20 @@ func (s *TemplatesService) Clone(ctx context.Context, id string, req *CloneTempl
 	}
 	return &resp, nil
 }
+
+// Generate generates a template from a description using AI.
+func (s *TemplatesService) Generate(ctx context.Context, req *GenerateTemplateRequest) (*GeneratedTemplate, error) {
+	if req == nil {
+		return nil, &ValidationError{APIError: APIError{Message: "request is required"}}
+	}
+	if req.Description == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "description is required"}}
+	}
+
+	var resp GeneratedTemplate
+	err := s.client.doRequest(ctx, "POST", "/templates/generate", req, &resp)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}

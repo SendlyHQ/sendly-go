@@ -63,6 +63,8 @@ type Client struct {
 	Labels *LabelsService
 	// Drafts provides access to draft operations.
 	Drafts *DraftsService
+	// Rules provides access to rule operations.
+	Rules *RulesService
 	// Enterprise provides access to enterprise management operations.
 	Enterprise *EnterpriseService
 
@@ -146,6 +148,7 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 	c.Conversations = &ConversationsService{client: c}
 	c.Labels = &LabelsService{client: c}
 	c.Drafts = &DraftsService{client: c}
+	c.Rules = &RulesService{client: c}
 	c.Media = &MediaService{client: c}
 	c.Enterprise = &EnterpriseService{
 		client:     c,

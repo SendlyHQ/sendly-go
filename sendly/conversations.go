@@ -204,3 +204,28 @@ func (s *ConversationsService) RemoveLabel(ctx context.Context, id string, label
 
 	return &resp, nil
 }
+
+// GetContext retrieves the conversation context for AI/LLM consumption.
+func (s *ConversationsService) GetContext(ctx context.Context, id string, req *GetConversationContextRequest) (*ConversationContextResponse, error) {
+	if id == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "conversation ID is required"}}
+	}
+
+	params := make(map[string]string)
+
+	if req != nil {
+		if req.MaxMessages > 0 {
+			params["max_messages"] = strconv.Itoa(req.MaxMessages)
+		}
+	}
+
+	path := "/conversations/" + url.PathEscape(id) + "/context" + buildQueryString(params)
+
+	var resp ConversationContextResponse
+	err := s.client.request(ctx, "GET", path, nil, &resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
+}

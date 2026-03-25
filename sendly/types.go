@@ -1410,3 +1410,89 @@ type ListDraftsRequest struct {
 	// Offset is the number of drafts to skip.
 	Offset int
 }
+
+// ============================================================================
+// Conversation Context
+// ============================================================================
+
+// ConversationContextInfo contains summary info about a conversation.
+type ConversationContextInfo struct {
+	ID           string `json:"id"`
+	PhoneNumber  string `json:"phoneNumber"`
+	Status       string `json:"status"`
+	MessageCount int    `json:"messageCount"`
+	UnreadCount  int    `json:"unreadCount"`
+}
+
+// ConversationContextBusiness contains business info for context.
+type ConversationContextBusiness struct {
+	Name    string `json:"name"`
+	UseCase string `json:"useCase,omitempty"`
+}
+
+// ConversationContextResponse is the response from getting conversation context.
+type ConversationContextResponse struct {
+	Context       string                       `json:"context"`
+	Conversation  ConversationContextInfo       `json:"conversation"`
+	TokenEstimate int                           `json:"tokenEstimate"`
+	Business      *ConversationContextBusiness  `json:"business,omitempty"`
+}
+
+// GetConversationContextRequest is the request to get conversation context.
+type GetConversationContextRequest struct {
+	MaxMessages int
+}
+
+// ============================================================================
+// Rules
+// ============================================================================
+
+// Rule represents an auto-labeling rule.
+type Rule struct {
+	ID         string                 `json:"id"`
+	Name       string                 `json:"name"`
+	Conditions map[string]interface{} `json:"conditions"`
+	Actions    map[string]interface{} `json:"actions"`
+	Priority   *int                   `json:"priority,omitempty"`
+	CreatedAt  string                 `json:"createdAt"`
+	UpdatedAt  string                 `json:"updatedAt"`
+}
+
+// RuleListResponse is the response from listing rules.
+type RuleListResponse struct {
+	Data []Rule `json:"data"`
+}
+
+// CreateRuleRequest is the request to create a rule.
+type CreateRuleRequest struct {
+	Name       string                 `json:"name"`
+	Conditions map[string]interface{} `json:"conditions"`
+	Actions    map[string]interface{} `json:"actions"`
+	Priority   *int                   `json:"priority,omitempty"`
+}
+
+// UpdateRuleRequest is the request to update a rule.
+type UpdateRuleRequest struct {
+	Name       string                 `json:"name,omitempty"`
+	Conditions map[string]interface{} `json:"conditions,omitempty"`
+	Actions    map[string]interface{} `json:"actions,omitempty"`
+	Priority   *int                   `json:"priority,omitempty"`
+}
+
+// ============================================================================
+// Generated Template
+// ============================================================================
+
+// GenerateTemplateRequest is the request to generate a template.
+type GenerateTemplateRequest struct {
+	Description string `json:"description"`
+	Category    string `json:"category,omitempty"`
+}
+
+// GeneratedTemplate is the response from generating a template.
+type GeneratedTemplate struct {
+	Name      string   `json:"name"`
+	Text      string   `json:"text"`
+	Variables []string `json:"variables"`
+	Category  string   `json:"category"`
+}
