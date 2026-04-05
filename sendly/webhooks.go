@@ -73,6 +73,7 @@ type WebhookMessageData struct {
 	MediaUrls      []string             `json:"media_urls,omitempty"`
 	RetryCount     int                    `json:"retry_count,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	BatchID        *string                `json:"batch_id,omitempty"`
 }
 
 type WebhookVerificationData struct {

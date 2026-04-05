@@ -282,14 +282,18 @@ const (
 
 // BatchMessageResult represents the result of a single message in a batch.
 type BatchMessageResult struct {
+	// ID is the message ID.
+	ID string `json:"id"`
 	// To is the recipient phone number.
 	To string `json:"to"`
-	// MessageID is the message ID if successful.
-	MessageID *string `json:"messageId,omitempty"`
 	// Status is the message status.
 	Status string `json:"status"`
 	// Error is the error message if failed.
 	Error *string `json:"error,omitempty"`
+	// CreatedAt is when the message was created.
+	CreatedAt *string `json:"createdAt,omitempty"`
+	// DeliveredAt is when the message was delivered.
+	DeliveredAt *string `json:"deliveredAt,omitempty"`
 }
 
 // BatchMessageResponse represents the response from sending batch messages.
