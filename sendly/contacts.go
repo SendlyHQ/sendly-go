@@ -16,13 +16,29 @@ type ContactListsService struct {
 }
 
 type Contact struct {
-	ID          string                 `json:"id"`
-	PhoneNumber string                 `json:"phone_number"`
-	Name        *string                `json:"name,omitempty"`
-	Email       *string                `json:"email,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-	CreatedAt   string                 `json:"created_at"`
-	UpdatedAt   string                 `json:"updated_at"`
+	ID                 string                 `json:"id"`
+	PhoneNumber        string                 `json:"phone_number"`
+	Name               *string                `json:"name,omitempty"`
+	Email              *string                `json:"email,omitempty"`
+	Metadata           map[string]interface{} `json:"metadata,omitempty"`
+	OptedOut           *bool                  `json:"opted_out,omitempty"`
+	LineType           *string                `json:"line_type,omitempty"`
+	CarrierName        *string                `json:"carrier_name,omitempty"`
+	LineTypeCheckedAt  *string                `json:"line_type_checked_at,omitempty"`
+	InvalidReason      *string                `json:"invalid_reason,omitempty"`
+	InvalidatedAt      *string                `json:"invalidated_at,omitempty"`
+	CreatedAt          string                 `json:"created_at"`
+	UpdatedAt          string                 `json:"updated_at"`
+}
+
+type CheckNumbersRequest struct {
+	ListID string `json:"listId,omitempty"`
+	Force  bool   `json:"force,omitempty"`
+}
+
+type CheckNumbersResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
 }
 
 type ContactList struct {
@@ -164,6 +180,35 @@ func (s *ContactsService) Update(ctx context.Context, id string, req *UpdateCont
 
 func (s *ContactsService) Delete(ctx context.Context, id string) error {
 	return s.client.request(ctx, "DELETE", fmt.Sprintf("/contacts/%s", id), nil, nil)
+}
+
+// MarkValid clears the invalid flag on a contact so future campaigns include it again.
+// Contacts get auto-flagged as invalid when a send fails with a terminal bad-number
+// error (landline, invalid number) or when a carrier lookup reports they can't receive SMS.
+func (s *ContactsService) MarkValid(ctx context.Context, id string) (*Contact, error) {
+	var resp Contact
+	err := s.client.request(ctx, "POST", fmt.Sprintf("/contacts/%s/mark-valid", id), nil, &resp)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// CheckNumbers triggers a background carrier lookup across your contacts. Landlines
+// and other non-SMS-capable numbers are auto-excluded from future campaigns. Results
+// populate the LineType, CarrierName, and InvalidReason fields on affected contacts.
+// Idempotent: re-triggering while a lookup is running for the same scope is a no-op.
+// Pass nil to check all un-checked contacts, or scope via &CheckNumbersRequest{ListID: "lst_xxx"}.
+func (s *ContactsService) CheckNumbers(ctx context.Context, req *CheckNumbersRequest) (*CheckNumbersResponse, error) {
+	var resp CheckNumbersResponse
+	if req == nil {
+		req = &CheckNumbersRequest{}
+	}
+	err := s.client.request(ctx, "POST", "/contacts/lookup", req, &resp)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 func (s *ContactsService) Import(ctx context.Context, req *ImportContactsRequest) (*ImportContactsResponse, error) {
