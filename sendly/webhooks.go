@@ -37,7 +37,23 @@ const (
 	WebhookEventVerificationResent         WebhookEventType = "verification.resent"
 	WebhookEventVerificationDeliveryFailed WebhookEventType = "verification.delivery_failed"
 
+	WebhookEventContactAutoFlagged        WebhookEventType = "contact.auto_flagged"
+	WebhookEventContactMarkedValid        WebhookEventType = "contact.marked_valid"
+	WebhookEventContactsLookupCompleted   WebhookEventType = "contacts.lookup_completed"
+	WebhookEventContactsBulkMarkedValid   WebhookEventType = "contacts.bulk_marked_valid"
+
 	signatureToleranceSeconds = 300
+)
+
+// ListHealthEventSource is the source of a list-health event. Frozen enum —
+// new values will be added in minor SDK versions, never removed.
+type ListHealthEventSource string
+
+const (
+	ListHealthSourceSendFailure   ListHealthEventSource = "send_failure"
+	ListHealthSourceCarrierLookup ListHealthEventSource = "carrier_lookup"
+	ListHealthSourceUserAction    ListHealthEventSource = "user_action"
+	ListHealthSourceBulkMarkValid ListHealthEventSource = "bulk_mark_valid"
 )
 
 // WebhookMessageStatus represents the status of a message in webhook events

@@ -2,6 +2,7 @@ package sendly
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 )
@@ -27,6 +28,7 @@ type Contact struct {
 	LineTypeCheckedAt  *string                `json:"line_type_checked_at,omitempty"`
 	InvalidReason      *string                `json:"invalid_reason,omitempty"`
 	InvalidatedAt      *string                `json:"invalidated_at,omitempty"`
+	UserMarkedValidAt  *string                `json:"user_marked_valid_at,omitempty"`
 	CreatedAt          string                 `json:"created_at"`
 	UpdatedAt          string                 `json:"updated_at"`
 }
@@ -37,8 +39,23 @@ type CheckNumbersRequest struct {
 }
 
 type CheckNumbersResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message,omitempty"`
+	Success        bool   `json:"success"`
+	AlreadyRunning bool   `json:"alreadyRunning,omitempty"`
+	Message        string `json:"message,omitempty"`
+}
+
+// BulkMarkValidRequest scopes a bulk mark-valid call. Pass either IDs (up to
+// 10,000 per call) OR ListID — not both. Foreign ids silently no-op via the
+// per-organization filter.
+type BulkMarkValidRequest struct {
+	IDs    []string `json:"ids,omitempty"`
+	ListID string   `json:"listId,omitempty"`
+}
+
+// BulkMarkValidResponse reports how many contacts actually had their invalid
+// flag cleared.
+type BulkMarkValidResponse struct {
+	Cleared int `json:"cleared"`
 }
 
 type ContactList struct {
@@ -188,6 +205,42 @@ func (s *ContactsService) Delete(ctx context.Context, id string) error {
 func (s *ContactsService) MarkValid(ctx context.Context, id string) (*Contact, error) {
 	var resp Contact
 	err := s.client.request(ctx, "POST", fmt.Sprintf("/contacts/%s/mark-valid", id), nil, &resp)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// BulkMarkValid clears the invalid flag on many contacts at once — the escape
+// hatch for when auto-flag misclassifies at scale. Pass either an explicit id
+// array (up to 10,000 per call) OR a ListID, not both. Foreign ids silently
+// no-op via the per-organization filter.
+//
+// Returns the number of contacts whose flag was actually cleared. Already-clean
+// contacts and foreign ids don't count.
+func (s *ContactsService) BulkMarkValid(ctx context.Context, req BulkMarkValidRequest) (*BulkMarkValidResponse, error) {
+	hasIDs := len(req.IDs) > 0
+	hasListID := req.ListID != ""
+	if !hasIDs && !hasListID {
+		return nil, errors.New("BulkMarkValid requires either IDs or ListID")
+	}
+	if hasIDs && hasListID {
+		return nil, errors.New("BulkMarkValid accepts IDs OR ListID, not both")
+	}
+
+	var body interface{}
+	if hasIDs {
+		body = struct {
+			IDs []string `json:"ids"`
+		}{IDs: req.IDs}
+	} else {
+		body = struct {
+			ListID string `json:"listId"`
+		}{ListID: req.ListID}
+	}
+
+	var resp BulkMarkValidResponse
+	err := s.client.request(ctx, "POST", "/contacts/bulk-mark-valid", body, &resp)
 	if err != nil {
 		return nil, err
 	}
