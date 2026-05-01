@@ -207,6 +207,108 @@ func (s *WebhooksService) ResetCircuit(ctx context.Context, webhookID string) (m
 	return result, nil
 }
 
+// RedeliverOptions configures Webhooks.Redeliver. Pointer fields are
+// optional — leave nil to use the server defaults.
+type RedeliverOptions struct {
+	// Since is the earliest delivery created_at to consider, ISO-8601.
+	// Default: now − 24h.
+	Since *string `json:"since,omitempty"`
+	// Until is the latest delivery created_at to consider, ISO-8601.
+	// Default: now.
+	Until *string `json:"until,omitempty"`
+	// EventTypes filters by event type. Default: all.
+	EventTypes []string `json:"event_types,omitempty"`
+	// Statuses filters by current delivery status.
+	// Default: ["failed", "cancelled"].
+	Statuses []string `json:"statuses,omitempty"`
+	// Limit caps the number of deliveries requeued (default 1000, max 10000).
+	Limit *int `json:"limit,omitempty"`
+}
+
+// RedeliverResult is returned by Webhooks.Redeliver.
+type RedeliverResult struct {
+	Message     string   `json:"message"`
+	Requeued    int      `json:"requeued"`
+	Skipped     int      `json:"skipped"`
+	Truncated   bool     `json:"truncated"`
+	WindowSize  int      `json:"window_size"`
+	DeliveryIDs []string `json:"delivery_ids"`
+	Since       string   `json:"since"`
+	Until       string   `json:"until"`
+	Limit       int      `json:"limit"`
+}
+
+// Redeliver replays failed or cancelled webhook deliveries from the audit
+// log. Each replay creates a new delivery row preserving the original
+// event_id so customers can dedupe.
+//
+// Rejects with HTTP 409 if the circuit is currently open — call
+// ResetCircuit first.
+func (s *WebhooksService) Redeliver(ctx context.Context, webhookID string, opts *RedeliverOptions) (*RedeliverResult, error) {
+	if webhookID == "" || !strings.HasPrefix(webhookID, "whk_") {
+		return nil, errors.New("invalid webhook ID format")
+	}
+
+	var body interface{}
+	if opts != nil {
+		body = opts
+	}
+
+	var result RedeliverResult
+	if err := s.client.request(ctx, "POST", "/webhooks/"+webhookID+"/redeliver", body, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// BackfillOptions configures Webhooks.Backfill.
+type BackfillOptions struct {
+	Since      *string  `json:"since,omitempty"`
+	Until      *string  `json:"until,omitempty"`
+	EventTypes []string `json:"event_types,omitempty"`
+	Limit      *int     `json:"limit,omitempty"`
+}
+
+// BackfillResult is returned by Webhooks.Backfill.
+type BackfillResult struct {
+	Message           string         `json:"message"`
+	Synthesized       int            `json:"synthesized"`
+	ByType            map[string]int `json:"by_type"`
+	Truncated         bool           `json:"truncated"`
+	CandidatesScanned int            `json:"candidates_scanned"`
+	DeliveryIDs       []string       `json:"delivery_ids"`
+	Since             string         `json:"since"`
+	Until             string         `json:"until"`
+	Limit             int            `json:"limit"`
+}
+
+// Backfill synthesizes webhook deliveries from the underlying message log
+// for events that have no audit row. Use this when a circuit-breaker
+// outage left events with no delivery record (the case Redeliver cannot
+// recover). Synthesized events have fresh IDs — clients should dedupe by
+// event.data.object.id (the message ID).
+//
+// Rejects with HTTP 409 if the circuit is currently open — call
+// ResetCircuit first.
+func (s *WebhooksService) Backfill(ctx context.Context, webhookID string, opts *BackfillOptions) (*BackfillResult, error) {
+	if webhookID == "" || !strings.HasPrefix(webhookID, "whk_") {
+		return nil, errors.New("invalid webhook ID format")
+	}
+
+	var body interface{}
+	if opts != nil {
+		body = opts
+	}
+
+	var result BackfillResult
+	if err := s.client.request(ctx, "POST", "/webhooks/"+webhookID+"/backfill", body, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
 // RotateSecret rotates the webhook signing secret.
 func (s *WebhooksService) RotateSecret(ctx context.Context, webhookID string) (*WebhookSecretRotation, error) {
 	if webhookID == "" || !strings.HasPrefix(webhookID, "whk_") {
