@@ -256,6 +256,39 @@ rotation, err := client.Webhooks.RotateSecret(ctx, "whk_xxx")
 err = client.Webhooks.Delete(ctx, "whk_xxx")
 ```
 
+### Recovering Missed Events
+
+After an outage (your endpoint was down, or our circuit breaker opened),
+two methods recover what was missed:
+
+```go
+since := "2026-05-01T00:00:00Z"
+until := "2026-05-01T18:00:00Z"
+limit := 5000
+
+// Redeliver: re-send failed deliveries already in the audit log.
+redeliver, err := client.Webhooks.Redeliver(ctx, "whk_xxx", &sendly.RedeliverOptions{
+    Since:      &since,
+    Until:      &until,
+    EventTypes: []string{"message.delivered", "message.failed"},
+    Limit:      &limit,
+})
+fmt.Printf("Queued %d retries\n", redeliver.Queued)
+
+// Backfill: synthesize deliveries for messages whose events never created
+// a delivery row in the first place (silent-drop case).
+backfill, err := client.Webhooks.Backfill(ctx, "whk_xxx", &sendly.BackfillOptions{
+    Since:      &since,
+    EventTypes: []string{"message.delivered", "message.failed"},
+})
+fmt.Printf("Backfilled %d events\n", backfill.Queued)
+```
+
+Use `Redeliver` when deliveries exist but failed (5xx, timeout). Use
+`Backfill` when deliveries are missing entirely (circuit was open during
+the outage). Both are idempotent — duplicate calls within the same
+window won't double-send.
+
 ## Account & Credits
 
 ```go
