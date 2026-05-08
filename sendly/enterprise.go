@@ -201,7 +201,19 @@ func (s *WorkspacesService) Delete(ctx context.Context, id string) error {
 	return s.client.request(ctx, "DELETE", fmt.Sprintf("/enterprise/workspaces/%s", url.PathEscape(id)), nil, nil)
 }
 
-func (s *WorkspacesService) SubmitVerification(ctx context.Context, id string, data *SubmitVerificationRequest) (*VerificationResponse, error) {
+// SubmitVerification submits (or resubmits) a verification for an enterprise
+// workspace.
+//
+// Partial-update friendly (May 2026): for resubmits on an existing workspace
+// you only need to send the fields you want to change — everything else is
+// preserved from the existing record. Hosted page URLs (/biz/, /opt-in/,
+// /legal/) generated during provision are auto-preserved.
+//
+// For initial submission the server requires at minimum: BusinessName,
+// Website, Address, Contact, UseCase, UseCaseSummary, SampleMessages,
+// OptInWorkflow. For sole proprietors leave BRN, BRNType, BRNCountry nil —
+// the server strips them before forwarding to the carrier.
+func (s *WorkspacesService) SubmitVerification(ctx context.Context, id string, data *VerificationSubmitInput) (*VerificationResponse, error) {
 	if id == "" {
 		return nil, &ValidationError{APIError: APIError{Message: "workspace ID is required"}}
 	}
@@ -214,6 +226,15 @@ func (s *WorkspacesService) SubmitVerification(ctx context.Context, id string, d
 		return nil, err
 	}
 	return &resp, nil
+}
+
+// ResubmitVerification is a convenience alias for SubmitVerification that
+// reads more naturally when you only want to change a few fields after a
+// rejection. All unset (nil) fields are omitted from the request body, so
+// the server merges the partial update with the existing verification
+// record.
+func (s *WorkspacesService) ResubmitVerification(ctx context.Context, workspaceID string, partial *VerificationSubmitInput) (*VerificationResponse, error) {
+	return s.SubmitVerification(ctx, workspaceID, partial)
 }
 
 func (s *WorkspacesService) InheritVerification(ctx context.Context, id, sourceID string) (*InheritVerificationResponse, error) {

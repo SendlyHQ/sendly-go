@@ -712,6 +712,60 @@ type SubmitVerificationRequest struct {
 	EntityType            string                    `json:"entityType,omitempty"`
 }
 
+// VerificationAddressInput is the address payload for VerificationSubmitInput.
+// All fields are pointers so unset values are omitted from the JSON body,
+// allowing partial-update resubmits to leave existing values untouched.
+type VerificationAddressInput struct {
+	Street   *string `json:"street,omitempty"`
+	Address1 *string `json:"address1,omitempty"`
+	Address2 *string `json:"address2,omitempty"`
+	City     *string `json:"city,omitempty"`
+	State    *string `json:"state,omitempty"`
+	Zip      *string `json:"zip,omitempty"`
+	Country  *string `json:"country,omitempty"`
+}
+
+// VerificationContactInput is the contact payload for VerificationSubmitInput.
+type VerificationContactInput struct {
+	FirstName *string `json:"firstName,omitempty"`
+	LastName  *string `json:"lastName,omitempty"`
+	Email     *string `json:"email,omitempty"`
+	Phone     *string `json:"phone,omitempty"`
+}
+
+// VerificationSubmitInput is the payload for
+// WorkspacesService.SubmitVerification and ResubmitVerification. All fields
+// are pointers so unset values are omitted from the JSON body — for partial
+// resubmits on an existing workspace, the server merges with the existing
+// record. For initial submission the server requires at minimum:
+// BusinessName, Website, Address, Contact, UseCase, UseCaseSummary,
+// SampleMessages, OptInWorkflow.
+//
+// For sole proprietors, leave BRN, BRNType, BRNCountry as nil — the server
+// strips them before forwarding to the carrier.
+type VerificationSubmitInput struct {
+	BusinessName          *string                   `json:"businessName,omitempty"`
+	DoingBusinessAs       *string                   `json:"doingBusinessAs,omitempty"`
+	Website               *string                   `json:"website,omitempty"`
+	Address               *VerificationAddressInput `json:"address,omitempty"`
+	Contact               *VerificationContactInput `json:"contact,omitempty"`
+	BRN                   *string                   `json:"brn,omitempty"`
+	BRNType               *string                   `json:"brnType,omitempty"`
+	BRNCountry            *string                   `json:"brnCountry,omitempty"`
+	EntityType            *string                   `json:"entityType,omitempty"`
+	UseCase               *string                   `json:"useCase,omitempty"`
+	UseCaseSummary        *string                   `json:"useCaseSummary,omitempty"`
+	SampleMessages        *string                   `json:"sampleMessages,omitempty"`
+	OptInWorkflow         *string                   `json:"optInWorkflow,omitempty"`
+	OptInImageUrls        *string                   `json:"optInImageUrls,omitempty"`
+	MonthlyVolume         *string                   `json:"monthlyVolume,omitempty"`
+	AdditionalInformation *string                   `json:"additionalInformation,omitempty"`
+	AgeGatedContent       *bool                     `json:"ageGatedContent,omitempty"`
+	ISVReseller           *string                   `json:"isvReseller,omitempty"`
+	PrivacyURL            *string                   `json:"privacyUrl,omitempty"`
+	TermsURL              *string                   `json:"termsUrl,omitempty"`
+}
+
 type VerificationResponse struct {
 	VerificationID  string  `json:"verificationId"`
 	Status          string  `json:"status"`
