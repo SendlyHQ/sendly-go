@@ -270,23 +270,19 @@ fmt.Printf("Reserved: %d credits\n", credits.ReservedBalance)
 fmt.Printf("Total: %d credits\n", credits.Balance)
 
 // View credit transaction history
-transactions, err := client.Account.GetCreditTransactions(ctx)
-for _, tx := range transactions.Data {
+transactions, err := client.Account.GetCreditTransactions(ctx, nil)
+for _, tx := range transactions {
     fmt.Printf("%s: %d credits - %s\n", tx.Type, tx.Amount, tx.Description)
 }
 
 // List API keys
 keys, err := client.Account.ListAPIKeys(ctx)
-for _, key := range keys.Data {
+for _, key := range keys {
     fmt.Printf("%s: %s*** (%s)\n", key.Name, key.Prefix, key.Type)
 }
 
 // Create a new API key
-newKey, err := client.Account.CreateAPIKey(ctx, &sendly.CreateAPIKeyRequest{
-    Name:   "Production Key",
-    Type:   "live",
-    Scopes: []string{"sms:send", "sms:read"},
-})
+newKey, err := client.Account.CreateAPIKey(ctx, "Production Key")
 fmt.Printf("New key: %s\n", newKey.Key) // Only shown once!
 
 // Revoke an API key
@@ -363,10 +359,10 @@ The Enterprise API lets you programmatically manage workspaces, verification, cr
 Create a fully configured workspace in a single call:
 
 ```go
-client := sendly.New("sk_live_v1_master_YOUR_KEY")
+client := sendly.NewClient("sk_live_v1_master_YOUR_KEY")
 
 generateOptIn := true
-result, err := client.Enterprise.Provision(ctx, sendly.ProvisionWorkspaceRequest{
+result, err := client.Enterprise.Provision(ctx, &sendly.ProvisionWorkspaceRequest{
     Name:                    "Acme Insurance - Austin",
     SourceWorkspaceID:       "ws_verified",
     CreditAmount:            5000,
@@ -413,7 +409,7 @@ _ = client.Enterprise.Workspaces.RevokeKey(ctx, "ws_xxx", "key_abc")
 ```go
 webhook, _ := client.Enterprise.Webhooks.Set(ctx, "https://yourapp.com/webhooks")
 overview, _ := client.Enterprise.Analytics.Overview(ctx)
-messages, _ := client.Enterprise.Analytics.Messages(ctx, "30d", "")
+messages, _ := client.Enterprise.Analytics.Messages(ctx, &sendly.AnalyticsMessagesOptions{Period: "30d"})
 delivery, _ := client.Enterprise.Analytics.Delivery(ctx)
 ```
 
