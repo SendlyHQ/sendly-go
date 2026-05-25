@@ -1,5 +1,14 @@
 # sendly-go
 
+## 3.32.0
+
+### Minor Changes
+
+- New `client.BusinessUpgrade` resource for the toll-free entity-upgrade ("fork-with-new-number") flow — when a customer forms a new legal entity (e.g. an LLC), reserve a new toll-free number under the new entity, submit it for carrier review, and atomically swap to it on approval without disrupting outbound SMS during the 1-2 week review window.
+- Seven methods mirror the customer-facing API: `Preflight(ctx, *PreflightCandidate)`, `BestPrefill(ctx)`, `Start(ctx, workspaceID, *StartUpgradeParams, *EinDocument)`, `Status(ctx, workspaceID)`, `Cancel(ctx, workspaceID)`, `Resubmit(ctx, workspaceID, *StartUpgradeParams, *EinDocument)`, `SetDisposition(ctx, workspaceID, *SetDispositionRequest)`.
+- Multipart EIN/CP-575 PDF upload via the new `EinDocument` struct (`Data []byte`, optional `Filename`, optional `ContentType`). Empty fields are dropped from the request body so `Resubmit` with a partial `StartUpgradeParams` only sends the fields you changed.
+- New exported types: `PreflightCandidate`, `PreflightIssue`, `PreflightProposedFix`, `PreflightReport`, `StartUpgradeParams`, `EinDocument`, `StartUpgradeResponse`, `UpgradePending`, `UpgradeStatusResponse`, `CancelUpgradeResponse`, `ResubmitUpgradeResponse`, `DispositionResponse`, `BestPrefillFields`, `BestPrefillResponse`, `SetDispositionRequest`.
+
 ## 3.31.0
 
 ### Patch Changes

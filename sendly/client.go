@@ -21,7 +21,7 @@ const (
 	// DefaultTimeout is the default HTTP client timeout.
 	DefaultTimeout = 30 * time.Second
 	// Version is the SDK version.
-	Version = "3.31.0"
+	Version = "3.32.0"
 )
 
 // Client is the Sendly API client.
@@ -67,6 +67,8 @@ type Client struct {
 	Rules *RulesService
 	// Enterprise provides access to enterprise management operations.
 	Enterprise *EnterpriseService
+	// BusinessUpgrade provides access to the toll-free entity-upgrade flow.
+	BusinessUpgrade *BusinessUpgradeService
 
 	rateLimiter *rate.Limiter
 }
@@ -159,6 +161,7 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 		Billing:    &BillingService{client: c},
 		Credits:    &CreditsService{client: c},
 	}
+	c.BusinessUpgrade = &BusinessUpgradeService{client: c}
 
 	return c
 }
