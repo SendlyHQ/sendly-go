@@ -229,3 +229,20 @@ func (s *ConversationsService) GetContext(ctx context.Context, id string, req *G
 
 	return &resp, nil
 }
+
+// SuggestReplies generates AI-suggested replies for a conversation.
+func (s *ConversationsService) SuggestReplies(ctx context.Context, id string) (*SuggestRepliesResponse, error) {
+	if id == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "conversation ID is required"}}
+	}
+
+	path := "/conversations/" + url.PathEscape(id) + "/suggest-replies"
+
+	var resp SuggestRepliesResponse
+	err := s.client.request(ctx, "POST", path, nil, &resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
+}

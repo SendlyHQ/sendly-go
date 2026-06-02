@@ -1501,6 +1501,24 @@ type GetConversationContextRequest struct {
 	MaxMessages int
 }
 
+// SuggestedReply represents a single AI-generated reply suggestion.
+type SuggestedReply struct {
+	// Text is the suggested reply text.
+	Text string `json:"text"`
+	// Tone is the tone of the suggestion (professional, friendly, or concise).
+	Tone string `json:"tone"`
+}
+
+// SuggestRepliesResponse is the response from generating suggested replies.
+type SuggestRepliesResponse struct {
+	// Suggestions contains the AI-generated reply suggestions.
+	Suggestions []SuggestedReply `json:"suggestions"`
+	// BasedOnMessageId is the ID of the inbound message the suggestions were based on.
+	BasedOnMessageId string `json:"basedOnMessageId,omitempty"`
+	// Model is the AI model used to generate the suggestions.
+	Model string `json:"model,omitempty"`
+}
+
 // ============================================================================
 // Rules
 // ============================================================================
