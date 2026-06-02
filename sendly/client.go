@@ -55,6 +55,8 @@ type Client struct {
 	Campaigns *CampaignsService
 	// Contacts provides access to contact management.
 	Contacts *ContactsService
+	// Numbers provides access to buying and managing phone numbers.
+	Numbers *NumbersService
 	// Media provides access to media upload operations.
 	Media *MediaService
 	// Conversations provides access to conversation operations.
@@ -147,6 +149,7 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 	c.Templates = &TemplatesService{client: c}
 	c.Campaigns = &CampaignsService{client: c}
 	c.Contacts = &ContactsService{client: c, Lists: &ContactListsService{client: c}}
+	c.Numbers = &NumbersService{client: c}
 	c.Conversations = &ConversationsService{client: c}
 	c.Labels = &LabelsService{client: c}
 	c.Drafts = &DraftsService{client: c}
