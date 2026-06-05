@@ -42,6 +42,13 @@ type OwnedNumber struct {
 	CountryCode      *string `json:"countryCode,omitempty"`
 	PhoneNumberType  *string `json:"phoneNumberType,omitempty"`
 	MonthlyCostCents *int    `json:"monthlyCostCents,omitempty"`
+	// RequirementsSubmittedAt is nil while the number still needs regulatory
+	// documents; a value means documents were submitted and are under carrier review.
+	RequirementsSubmittedAt *string `json:"requirementsSubmittedAt,omitempty"`
+	// PendingCancellation is true if the number is scheduled for release at period end.
+	PendingCancellation bool `json:"pendingCancellation"`
+	// ScheduledReleaseAt is the time the number is scheduled for release, if any.
+	ScheduledReleaseAt *string `json:"scheduledReleaseAt,omitempty"`
 }
 
 // OwnedNumbersResponse wraps the workspace's numbers.
