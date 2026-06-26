@@ -92,7 +92,7 @@ func TestMessagesSend_ValidationErrors(t *testing.T) {
 		{
 			name:        "empty text",
 			req:         &SendMessageRequest{To: "+1234567890", Text: ""},
-			expectedErr: "text is required",
+			expectedErr: "either text or media_urls is required",
 		},
 	}
 

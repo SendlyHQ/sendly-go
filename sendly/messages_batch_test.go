@@ -331,16 +331,16 @@ func TestMessagesGetBatch_Success(t *testing.T) {
 			CreatedAt:   "2024-01-01T00:00:00Z",
 			Messages: []BatchMessageResult{
 				{
-					To:        "+1234567890",
-					MessageID: &msgID1,
-					Status:    "delivered",
-					Error:     nil,
+					To:     "+1234567890",
+					ID:     msgID1,
+					Status: "delivered",
+					Error:  nil,
 				},
 				{
-					To:        "+1987654321",
-					MessageID: &msgID2,
-					Status:    "failed",
-					Error:     &errMsg,
+					To:     "+1987654321",
+					ID:     msgID2,
+					Status: "failed",
+					Error:  &errMsg,
 				},
 			},
 		}
