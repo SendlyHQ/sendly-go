@@ -108,6 +108,8 @@ type SendMessageRequest struct {
 	Text string `json:"text"`
 	// MessageType is the message type for compliance: "marketing" (default) or "transactional".
 	MessageType MessageType `json:"messageType,omitempty"`
+	// From is the sender phone number or alphanumeric sender ID (optional; defaults to the account's number).
+	From string `json:"from,omitempty"`
 	// MediaUrls is a list of media URLs to attach (converts message to MMS).
 	MediaUrls []string `json:"mediaUrls,omitempty"`
 	// Metadata is custom JSON metadata to attach to the message (max 4KB).
