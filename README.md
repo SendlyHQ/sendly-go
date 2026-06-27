@@ -120,6 +120,14 @@ message, err := client.Messages.Send(ctx, &sendly.SendMessageRequest{
     },
 })
 
+// Send from one of your owned numbers (or an alphanumeric sender ID).
+// Omit From to use your default sender.
+message, err := client.Messages.Send(ctx, &sendly.SendMessageRequest{
+    To:   "+15551234567",
+    Text: "Hello from our team!",
+    From: "+447111111111",
+})
+
 fmt.Printf("ID: %s\n", message.ID)
 fmt.Printf("Status: %s\n", message.Status)
 fmt.Printf("Credits: %d\n", message.CreditsUsed)
