@@ -1,6 +1,9 @@
 package sendly
 
-import "context"
+import (
+	"context"
+	"net/url"
+)
 
 // NumbersService provides access to buying and managing phone numbers.
 type NumbersService struct {
@@ -42,6 +45,9 @@ type OwnedNumber struct {
 	CountryCode      *string `json:"countryCode,omitempty"`
 	PhoneNumberType  *string `json:"phoneNumberType,omitempty"`
 	MonthlyCostCents *int    `json:"monthlyCostCents,omitempty"`
+	// IsDefault is true when this is the workspace's default sending number.
+	// Present on the single-number responses (Get, Update); omitted from List.
+	IsDefault *bool `json:"isDefault,omitempty"`
 	// RequirementsSubmittedAt is nil while the number still needs regulatory
 	// documents; a value means documents were submitted and are under carrier review.
 	RequirementsSubmittedAt *string `json:"requirementsSubmittedAt,omitempty"`
@@ -54,6 +60,29 @@ type OwnedNumber struct {
 // OwnedNumbersResponse wraps the workspace's numbers.
 type OwnedNumbersResponse struct {
 	Numbers []OwnedNumber `json:"numbers"`
+}
+
+// UpdateNumberRequest is the body for NumbersService.Update. Supply at least
+// one field; only these two mutations are supported:
+//   - IsDefault = true: make this the workspace's default sender. The number
+//     must be active, or the call fails with an invalid_state error.
+//   - PendingCancellation = false: cancel a previously scheduled release and
+//     keep the number.
+//
+// A body with neither field set fails with a no_supported_fields error.
+type UpdateNumberRequest struct {
+	IsDefault           *bool `json:"isDefault,omitempty"`
+	PendingCancellation *bool `json:"pendingCancellation,omitempty"`
+}
+
+// ReleaseNumberResponse is the result of NumbersService.Release. An immediate
+// release returns only Success=true; a live paid purchase is instead cancelled
+// at the end of the paid period, in which case Scheduled is true and
+// ScheduledReleaseAt carries the effective time.
+type ReleaseNumberResponse struct {
+	Success            bool    `json:"success"`
+	Scheduled          bool    `json:"scheduled,omitempty"`
+	ScheduledReleaseAt *string `json:"scheduledReleaseAt,omitempty"`
 }
 
 // ListAvailableRequest filters an inventory search. Country + Type are required.
@@ -128,6 +157,52 @@ func (s *NumbersService) ListAvailable(ctx context.Context, req *ListAvailableRe
 func (s *NumbersService) List(ctx context.Context) (*OwnedNumbersResponse, error) {
 	var resp OwnedNumbersResponse
 	if err := s.client.request(ctx, "GET", "/numbers", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// Get returns a single owned number by ID, including whether it is the
+// workspace's default sender (IsDefault). Returns a NotFoundError if no such
+// number exists in the workspace.
+func (s *NumbersService) Get(ctx context.Context, id string) (*OwnedNumber, error) {
+	if id == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "number ID is required"}}
+	}
+	var resp OwnedNumber
+	if err := s.client.request(ctx, "GET", "/numbers/"+url.PathEscape(id), nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// Update mutates a single owned number and returns its full record. Supply at
+// least one supported field on req (see UpdateNumberRequest): set IsDefault to
+// true to make it the workspace's default sender, and/or set PendingCancellation
+// to false to cancel a scheduled release ("keep this number").
+func (s *NumbersService) Update(ctx context.Context, id string, req *UpdateNumberRequest) (*OwnedNumber, error) {
+	if id == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "number ID is required"}}
+	}
+	if req == nil || (req.IsDefault == nil && req.PendingCancellation == nil) {
+		return nil, &ValidationError{APIError: APIError{Message: "provide at least one of isDefault or pendingCancellation"}}
+	}
+	var resp OwnedNumber
+	if err := s.client.request(ctx, "PATCH", "/numbers/"+url.PathEscape(id), req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// Release releases a number you own. A live paid purchase is cancelled at the
+// end of the paid period — the response then carries Scheduled=true plus a
+// ScheduledReleaseAt; everything else is released immediately (Success=true).
+func (s *NumbersService) Release(ctx context.Context, id string) (*ReleaseNumberResponse, error) {
+	if id == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "number ID is required"}}
+	}
+	var resp ReleaseNumberResponse
+	if err := s.client.request(ctx, "DELETE", "/numbers/"+url.PathEscape(id), nil, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

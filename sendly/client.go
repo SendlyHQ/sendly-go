@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -73,6 +74,8 @@ type Client struct {
 	Enterprise *EnterpriseService
 	// BusinessUpgrade provides access to the toll-free entity-upgrade flow.
 	BusinessUpgrade *BusinessUpgradeService
+	// Links provides access to branded URL-shortening operations.
+	Links *LinksService
 
 	rateLimiter *rate.Limiter
 }
@@ -168,12 +171,22 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 		Credits:    &CreditsService{client: c},
 	}
 	c.BusinessUpgrade = &BusinessUpgradeService{client: c}
+	c.Links = &LinksService{client: c}
 
 	return c
 }
 
-// request performs an HTTP request with retries and rate limiting.
+// request performs an HTTP request against a versioned API path (relative to
+// BaseURL) with retries and rate limiting.
 func (c *Client) request(ctx context.Context, method, path string, body interface{}, result interface{}) error {
+	return c.requestURL(ctx, method, c.BaseURL+path, body, result)
+}
+
+// requestURL performs an HTTP request against a fully-qualified URL with
+// retries and rate limiting. request builds the URL from the versioned base;
+// unversioned endpoints (such as the URL shortener at /api/links) call this
+// directly with an absolute URL.
+func (c *Client) requestURL(ctx context.Context, method, fullURL string, body interface{}, result interface{}) error {
 	// Wait for rate limiter
 	if err := c.rateLimiter.Wait(ctx); err != nil {
 		return &NetworkError{Message: "rate limiter error", Err: err}
@@ -191,7 +204,7 @@ func (c *Client) request(ctx context.Context, method, path string, body interfac
 			}
 		}
 
-		err := c.doRequest(ctx, method, path, body, result)
+		err := c.doRequest(ctx, method, fullURL, body, result)
 		if err == nil {
 			return nil
 		}
@@ -227,10 +240,8 @@ func (c *Client) request(ctx context.Context, method, path string, body interfac
 	return lastErr
 }
 
-// doRequest performs a single HTTP request.
-func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}, result interface{}) error {
-	fullURL := c.BaseURL + path
-
+// doRequest performs a single HTTP request against a fully-qualified URL.
+func (c *Client) doRequest(ctx context.Context, method, fullURL string, body interface{}, result interface{}) error {
 	var bodyReader io.Reader
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
@@ -319,6 +330,15 @@ func (c *Client) handleErrorResponse(resp *http.Response, body []byte) error {
 			StatusCode: resp.StatusCode,
 		}
 	}
+}
+
+// unversionedURL builds a fully-qualified URL at the un-versioned API root
+// by stripping the trailing version segment from BaseURL, for the rare
+// endpoint that does not live under /api/v1.
+func (c *Client) unversionedURL(path string) string {
+	base := strings.TrimSuffix(c.BaseURL, "/")
+	base = strings.TrimSuffix(base, "/v1")
+	return base + path
 }
 
 // buildQueryString builds a query string from parameters.

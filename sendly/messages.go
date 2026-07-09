@@ -32,6 +32,55 @@ func (s *MessagesService) Send(ctx context.Context, req *SendMessageRequest) (*M
 	return &resp, nil
 }
 
+// SendGroup sends a group MMS to 2-8 US/Canada recipients.
+//
+// Everyone in the group shares one thread and replies fan out to all
+// participants. Group messaging is an A2P 10DLC capability: the sending number
+// must be an MMS-enabled, 10DLC-registered number you own. Omit From to use the
+// workspace's default sender. Requires the group_mms feature (and enable_mms
+// when attaching media).
+func (s *MessagesService) SendGroup(ctx context.Context, req *SendGroupMessageRequest) (*GroupMessageResponse, error) {
+	if req == nil {
+		return nil, &ValidationError{APIError: APIError{Message: "request is required"}}
+	}
+	if len(req.To) < 2 {
+		return nil, &ValidationError{APIError: APIError{Message: "group messaging requires at least 2 recipients in 'to'"}}
+	}
+	if len(req.To) > 8 {
+		return nil, &ValidationError{APIError: APIError{Message: "group messaging supports at most 8 recipients"}}
+	}
+	if req.Text == "" && len(req.MediaUrls) == 0 {
+		return nil, &ValidationError{APIError: APIError{Message: "either text or media_urls is required"}}
+	}
+
+	var resp GroupMessageResponse
+	err := s.client.request(ctx, "POST", "/messages/group", req, &resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
+}
+
+// Enhance rewrites a draft message with AI for clarity, compliance, and
+// send-readiness. Provide Text, MessageType, or both — at least one is
+// required. When AI enhancement is unavailable for the account, the response
+// falls back to the original text with an empty explanation. Requires the
+// ai_classification feature.
+func (s *MessagesService) Enhance(ctx context.Context, req *EnhanceMessageRequest) (*EnhanceMessageResponse, error) {
+	if req == nil || (req.Text == "" && req.MessageType == "") {
+		return nil, &ValidationError{APIError: APIError{Message: "either text or messageType is required"}}
+	}
+
+	var resp EnhanceMessageResponse
+	err := s.client.request(ctx, "POST", "/ai/enhance", req, &resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
+}
+
 // List retrieves a list of messages.
 func (s *MessagesService) List(ctx context.Context, req *ListMessagesRequest) (*ListMessagesResponse, error) {
 	params := make(map[string]string)

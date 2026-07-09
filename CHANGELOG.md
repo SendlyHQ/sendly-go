@@ -1,5 +1,33 @@
 # sendly-go
 
+## 3.36.0
+
+### Minor Changes
+
+- New `client.TenDlc` resource for 10DLC local-number texting registration — register your business for carrier review and text from local (10-digit) US numbers, now programmatic. The full flow: register a brand (`CreateBrand`), poll it to `verified` (`GetBrand`), pre-check a use case (`Qualify`), create a campaign (`CreateCampaign`), poll it to `active` (`GetCampaign`), then attach a number you own (`AssignNumber`); `ListBrands` / `ListCampaigns` / `ListAssignments` round out the surface. Statuses, throughput tiers, and failure reasons come back in plain language. Writes require a live API key with the `tendlc:write` scope.
+- New exported types for brands, campaigns, qualification, and assignments (`CreateTenDlcBrandRequest`, `TenDlcBrandResponse`, `CreateTenDlcCampaignRequest`, `TenDlcCampaignResponse`, `TenDlcQualifyResponse`, `TenDlcAssignmentResponse`, and the corresponding list responses).
+
+## 3.35.0
+
+### Minor Changes
+
+- Numbers: the programmatic buy flow now supports document-required countries end to end. `Numbers.Buy` returns a `documents_required` (or `payment_required`) status with a hosted-page action — relay the URL + code to the user to provide their business details and upload documents — and a re-buy with `ActionCode` set returns the new `under_review` status: the number is reserved and being verified + registered, and cannot send until it is active.
+- Numbers: the owned-number listing (`Numbers.List`) now surfaces lifecycle fields — `RequirementsSubmittedAt`, `PendingCancellation`, and `ScheduledReleaseAt` — alongside the existing `Status` and `MonthlyCostCents`, so you can tell an active number from one that still needs documents, is under carrier review, or is scheduled for release.
+- Messages: send from a number you own. Pass an owned, active number in E.164 as `From` on `Messages.Send` and the message goes out from that number. `From` can also be an alphanumeric sender ID for international destinations. It's optional and backward-compatible: omit it to use your default sender.
+
+## 3.34.0
+
+### Minor Changes
+
+- New `client.Numbers` resource — buy and manage phone numbers programmatically. `ListCountries`, `ListAvailable`, `List` (owned), and `Buy`. When a country needs registration documents or a payment method, `Buy` returns a secure hosted-action hand-off: open the returned link, prove terminal access with the short code, complete the step on the Sendly dashboard, then re-call `Buy` with the `ActionCode` to provision.
+- `Conversations.SuggestReplies(ctx, id)`: added the missing AI suggested-replies method for parity with the sibling SDKs.
+
+## 3.33.0
+
+### Patch Changes
+
+- Version bump for the unified entity-upgrade coverage release (SDK + CLI + MCP + backend `cliAuthMiddleware`). No additional Go SDK code this cycle — the `client.BusinessUpgrade` resource shipped in Go 3.32.0.
+
 ## 3.32.0
 
 ### Minor Changes

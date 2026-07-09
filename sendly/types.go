@@ -116,6 +116,58 @@ type SendMessageRequest struct {
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
+// SendGroupMessageRequest is the request to send a group MMS to multiple
+// recipients (US/Canada only). Group messaging is an A2P 10DLC capability:
+// the sending number must be an MMS-enabled, 10DLC-registered number you own.
+type SendGroupMessageRequest struct {
+	// To is the list of 2-8 recipient phone numbers in E.164 format (US/CA only, required).
+	To []string `json:"to"`
+	// Text is the message content (required unless MediaUrls is provided).
+	Text string `json:"text,omitempty"`
+	// From is the sending number in E.164 (optional; omit to use the workspace default).
+	From string `json:"from,omitempty"`
+	// MediaUrls is a list of HTTPS media URLs to attach (required unless Text is provided).
+	MediaUrls []string `json:"mediaUrls,omitempty"`
+	// MessageType is the message type for compliance: "transactional" (default) or "marketing".
+	MessageType MessageType `json:"messageType,omitempty"`
+}
+
+// GroupMessageResponse is the response from sending a group MMS.
+type GroupMessageResponse struct {
+	// ID is the message identifier (matches the id in delivery webhooks).
+	ID string `json:"id"`
+	// Status is the delivery status ("sent" on a live send, "delivered" when simulated).
+	Status MessageStatus `json:"status"`
+	// To is the recipients the group message was sent to.
+	To []string `json:"to"`
+	// GroupMessageID identifies the group conversation (present on live sends).
+	GroupMessageID string `json:"group_message_id,omitempty"`
+	// Simulated is true when the send was simulated (test key, or before domestic verification).
+	Simulated bool `json:"simulated,omitempty"`
+	// Message is a human-readable note, present on simulated sends.
+	Message string `json:"message,omitempty"`
+}
+
+// EnhanceMessageRequest is the request to AI-enhance a draft message. Provide
+// Text, MessageType, or both — at least one is required.
+type EnhanceMessageRequest struct {
+	// Text is the draft message text to rewrite (optional if MessageType is provided).
+	Text string `json:"text,omitempty"`
+	// MessageType steers the rewrite, e.g. "marketing" or "transactional" (optional if Text is provided).
+	MessageType MessageType `json:"messageType,omitempty"`
+}
+
+// EnhanceMessageResponse is the result of an AI message enhancement.
+type EnhanceMessageResponse struct {
+	// Enhanced is the rewritten message, capped at 160 characters (one SMS segment).
+	// When AI enhancement is unavailable, this falls back to the original text.
+	Enhanced string `json:"enhanced"`
+	// Explanation is a short description of what changed (empty on the fallback path).
+	Explanation string `json:"explanation"`
+	// Model is the AI model that produced the enhancement, when available.
+	Model string `json:"model,omitempty"`
+}
+
 // MediaFile represents an uploaded media file.
 type MediaFile struct {
 	// ID is the unique media file identifier.
@@ -1573,4 +1625,66 @@ type GeneratedTemplate struct {
 	Text      string   `json:"text"`
 	Variables []string `json:"variables"`
 	Category  string   `json:"category"`
+}
+
+// ============================================================================
+// Branded Short Links (URL shortening)
+// ============================================================================
+
+// ShortLink is a newly minted branded short link.
+type ShortLink struct {
+	// Code is the short code (the segment after the domain, e.g. "Ab3xY7").
+	Code string `json:"code"`
+	// ShortURL is the full branded short URL to share (e.g. "https://sendly.live/l/Ab3xY7").
+	ShortURL string `json:"shortUrl"`
+	// DestinationURL is the destination the short link redirects to.
+	DestinationURL string `json:"destinationUrl"`
+}
+
+// ListShortLinksRequest is the request to list short links.
+type ListShortLinksRequest struct {
+	// Limit is the maximum number of links to return (default 50, max 200).
+	Limit int
+	// Offset is the number of links to skip for pagination (default 0).
+	Offset int
+}
+
+// ShortLinkListItem is a short link with click analytics, as returned by List.
+type ShortLinkListItem struct {
+	// Code is the short code (the segment after the domain).
+	Code string `json:"code"`
+	// ShortURL is the full branded short URL.
+	ShortURL string `json:"shortUrl"`
+	// DestinationURL is the destination the short link redirects to.
+	DestinationURL string `json:"destinationUrl"`
+	// BrandSlug is the workspace brand slug segment, or nil when unbranded.
+	BrandSlug *string `json:"brandSlug,omitempty"`
+	// ClickCount is the total human clicks recorded (link-preview bots are excluded).
+	ClickCount int `json:"clickCount"`
+	// Disabled indicates whether the link is disabled (the redirect then returns 404).
+	Disabled bool `json:"disabled"`
+	// LastCountry is the ISO 3166-1 alpha-2 country of the most recent click, or nil.
+	LastCountry *string `json:"lastCountry,omitempty"`
+	// LastClickedAt is when the link was last clicked (ISO 8601), or nil.
+	LastClickedAt *string `json:"lastClickedAt,omitempty"`
+	// CreatedAt is when the link was created (ISO 8601).
+	CreatedAt string `json:"createdAt"`
+	// Spark is a 14-day daily click histogram, oldest first (today last).
+	Spark []int `json:"spark,omitempty"`
+}
+
+// ShortLinkListResponse is the response from listing short links.
+type ShortLinkListResponse struct {
+	// Links is the workspace's short links, newest first.
+	Links []ShortLinkListItem `json:"links"`
+	// Total is the total number of short links in the workspace.
+	Total int `json:"total"`
+}
+
+// ShortLinkDisabledResponse is the response from enabling or disabling a short link.
+type ShortLinkDisabledResponse struct {
+	// Code is the short code that was updated.
+	Code string `json:"code"`
+	// Disabled is the new disabled state.
+	Disabled bool `json:"disabled"`
 }

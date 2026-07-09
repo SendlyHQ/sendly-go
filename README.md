@@ -231,6 +231,46 @@ fmt.Printf("Total credits needed: %d\n", preview.TotalCredits)
 fmt.Printf("Valid: %d, Invalid: %d\n", preview.Valid, preview.Invalid)
 ```
 
+### Group MMS
+
+Send one MMS to 2-8 US/Canada recipients who all share a thread. Group
+messaging is an A2P 10DLC capability — the sending number must be an
+MMS-enabled, 10DLC-registered number you own. Omit `From` to use your
+default sender.
+
+```go
+group, err := client.Messages.SendGroup(ctx, &sendly.SendGroupMessageRequest{
+    To:   []string{"+15551234567", "+15559876543"},
+    Text: "Dinner at 7 tonight?",
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("Group message: %s (%s)\n", group.ID, group.Status)
+if group.GroupMessageID != "" {
+    fmt.Printf("Thread: %s\n", group.GroupMessageID)
+}
+```
+
+### AI Enhance
+
+Rewrite a draft message for clarity, compliance, and send-readiness. Provide
+`Text`, `MessageType`, or both.
+
+```go
+enhanced, err := client.Messages.Enhance(ctx, &sendly.EnhanceMessageRequest{
+    Text:        "hey wanna buy our stuff its on sale",
+    MessageType: "marketing",
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Println(enhanced.Enhanced)    // the rewritten message
+fmt.Println(enhanced.Explanation) // a short note on what changed
+```
+
 ## Webhooks
 
 ```go
@@ -264,6 +304,44 @@ rotation, err := client.Webhooks.RotateSecret(ctx, "whk_xxx")
 err = client.Webhooks.Delete(ctx, "whk_xxx")
 ```
 
+## Numbers
+
+```go
+// List the numbers attached to your workspace
+owned, err := client.Numbers.List(ctx)
+for _, n := range owned.Numbers {
+    fmt.Printf("%s: %s (%s)\n", n.ID, n.PhoneNumber, n.Status)
+}
+
+// Get a single number (includes whether it is your default sender)
+number, err := client.Numbers.Get(ctx, "num_xxx")
+if number.IsDefault != nil && *number.IsDefault {
+    fmt.Println("This is the default sender")
+}
+
+// Make a number your default sender (must be active)
+isDefault := true
+updated, err := client.Numbers.Update(ctx, "num_xxx", &sendly.UpdateNumberRequest{
+    IsDefault: &isDefault,
+})
+fmt.Printf("Default: %v\n", updated.IsDefault)
+
+// Cancel a scheduled release ("keep this number")
+keep := false
+_, err = client.Numbers.Update(ctx, "num_xxx", &sendly.UpdateNumberRequest{
+    PendingCancellation: &keep,
+})
+
+// Release a number. A live paid purchase is cancelled at the end of the paid
+// period, in which case the response is scheduled rather than immediate.
+result, err := client.Numbers.Release(ctx, "num_xxx")
+if result.Scheduled {
+    fmt.Printf("Releases at %s\n", *result.ScheduledReleaseAt)
+} else {
+    fmt.Println("Released")
+}
+```
+
 ## Account & Credits
 
 ```go
@@ -295,6 +373,41 @@ fmt.Printf("New key: %s\n", newKey.Key) // Only shown once!
 
 // Revoke an API key
 err = client.Account.RevokeAPIKey(ctx, "key_xxx")
+
+// Rotate an API key — issues a new secret and keeps the old one valid for a
+// grace period (24-168 hours, default 24) so running code keeps working.
+rotated, err := client.Account.RotateAPIKey(ctx, "key_xxx", &sendly.RotateAPIKeyRequest{
+    GracePeriodHours: 48,
+})
+fmt.Printf("New key: %s\n", rotated.NewKey.Key) // Only shown once!
+fmt.Println(rotated.Message)                    // e.g. when the old key expires
+```
+
+## Branded Links
+
+Mint branded short links for a destination URL, list them with click
+analytics, and flip a per-link kill switch. Requires the `url_shortener`
+feature on your account.
+
+```go
+// Create a short link (destination must be an http:// or https:// URL)
+link, err := client.Links.Create(ctx, "https://example.com/spring-sale")
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Printf("%s -> %s\n", link.ShortURL, link.DestinationURL)
+
+// List your links with click counts
+list, err := client.Links.List(ctx, &sendly.ListShortLinksRequest{Limit: 50})
+for _, l := range list.Links {
+    fmt.Printf("%s: %d clicks\n", l.Code, l.ClickCount)
+}
+
+// Disable a link (its redirect returns 404 until re-enabled)
+_, err = client.Links.Disable(ctx, link.Code)
+
+// Re-enable it
+_, err = client.Links.Enable(ctx, link.Code)
 ```
 
 ## Error Handling

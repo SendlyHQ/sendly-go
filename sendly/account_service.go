@@ -250,3 +250,57 @@ func (s *AccountService) RevokeAPIKey(ctx context.Context, keyID string) error {
 
 	return s.client.request(ctx, "DELETE", "/account/keys/"+keyID, nil, nil)
 }
+
+// RotateAPIKeyRequest is the body for RotateAPIKey. GracePeriodHours keeps the
+// old key valid for the given window (24-168 hours inclusive) before it
+// expires, so running code keeps working during the cutover. Leave it 0 to use
+// the server default of 24 hours.
+type RotateAPIKeyRequest struct {
+	GracePeriodHours int `json:"gracePeriodHours,omitempty"`
+}
+
+// RotatedAPIKey is the freshly issued key returned by RotateAPIKey. It carries
+// every APIKey field plus the one-time raw secret (Key) and a Warning to store
+// it now — the raw secret is shown only once.
+type RotatedAPIKey struct {
+	APIKey
+	// Key is the raw new secret ("sk_…"). Shown only once — store it now.
+	Key string `json:"key"`
+	// Warning is a human-readable caution about the one-time secret.
+	Warning string `json:"warning"`
+}
+
+// RotateAPIKeyResponse is the result of rotating an API key.
+type RotateAPIKeyResponse struct {
+	// NewKey is the newly issued key, including its one-time raw Key and Warning.
+	NewKey RotatedAPIKey `json:"newKey"`
+	// OldKey is the predecessor key, now counting down its grace period.
+	OldKey APIKey `json:"oldKey"`
+	// Message is a human-readable summary (e.g. when the old key expires).
+	Message string `json:"message"`
+}
+
+// RotateAPIKey issues a new value for an existing key and keeps the old one
+// valid for a grace period (24-168 hours, default 24) so running code keeps
+// working during the cutover. The returned NewKey.Key is the raw secret and is
+// shown only once — store it immediately. Pass nil req (or a zero
+// GracePeriodHours) to use the default grace period.
+func (s *AccountService) RotateAPIKey(ctx context.Context, keyID string, req *RotateAPIKeyRequest) (*RotateAPIKeyResponse, error) {
+	if keyID == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "API key ID is required"}}
+	}
+	if req != nil && req.GracePeriodHours != 0 && (req.GracePeriodHours < 24 || req.GracePeriodHours > 168) {
+		return nil, &ValidationError{APIError: APIError{Message: "gracePeriodHours must be between 24 and 168"}}
+	}
+
+	body := &RotateAPIKeyRequest{}
+	if req != nil {
+		body = req
+	}
+
+	var resp RotateAPIKeyResponse
+	if err := s.client.request(ctx, "POST", "/account/keys/"+keyID+"/rotate", body, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
