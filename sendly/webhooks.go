@@ -42,6 +42,27 @@ const (
 	WebhookEventContactsLookupCompleted   WebhookEventType = "contacts.lookup_completed"
 	WebhookEventContactsBulkMarkedValid   WebhookEventType = "contacts.bulk_marked_valid"
 
+	WebhookEventBrandVerified WebhookEventType = "brand.verified"
+	WebhookEventBrandFailed   WebhookEventType = "brand.failed"
+
+	WebhookEventCampaignApproved  WebhookEventType = "campaign.approved"
+	WebhookEventCampaignRejected  WebhookEventType = "campaign.rejected"
+	WebhookEventCampaignSuspended WebhookEventType = "campaign.suspended"
+
+	WebhookEventAssignmentConfirmed WebhookEventType = "assignment.confirmed"
+	WebhookEventAssignmentFailed    WebhookEventType = "assignment.failed"
+
+	WebhookEventPortCompleted    WebhookEventType = "port.completed"
+	WebhookEventPortOutRequested WebhookEventType = "port_out.requested"
+	WebhookEventPortOutCompleted WebhookEventType = "port_out.completed"
+	WebhookEventPortOutRejected  WebhookEventType = "port_out.rejected"
+	WebhookEventPortOutCancelled WebhookEventType = "port_out.cancelled"
+
+	WebhookEventNumberActivated            WebhookEventType = "number.activated"
+	WebhookEventNumberFailed               WebhookEventType = "number.failed"
+	WebhookEventNumberRequirementsRequired WebhookEventType = "number.requirements_required"
+	WebhookEventNumberReleased             WebhookEventType = "number.released"
+
 	signatureToleranceSeconds = 300
 )
 
