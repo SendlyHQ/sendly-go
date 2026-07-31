@@ -271,6 +271,69 @@ fmt.Println(enhanced.Enhanced)    // the rewritten message
 fmt.Println(enhanced.Explanation) // a short note on what changed
 ```
 
+## WhatsApp
+
+Connect a number you own to WhatsApp, create Meta-reviewed message templates,
+and send with `client.Messages.SendWhatsApp`. Connecting is a one-time $19
+setup (no monthly fee) and always ends with a human step: the connect URL must
+be opened in a browser and completed with a Facebook login. Free-form text and
+media only deliver inside an open 24-hour customer-service window — outside
+it, send an approved template.
+
+```go
+// 1. Connect a number ($19 one-time). A human must open the connect URL.
+signup, err := client.WhatsApp.Signup.Create(ctx, "+15559876543")
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Printf("Have your user open: %s\n", signup.ConnectURL)
+
+// 2. Poll until active
+status, err := client.WhatsApp.Signup.Get(ctx, signup.ID)
+fmt.Println(status.Status) // "initiated" -> "registering" -> "active"
+
+// 3. List your WhatsApp senders
+senders, err := client.WhatsApp.Senders.List(ctx)
+for _, s := range senders.Senders {
+    fmt.Printf("%s: %s\n", s.PhoneNumber, s.Status)
+}
+
+// 4. Create a template (Meta reviews it, usually 24-48h)
+template, err := client.WhatsApp.Templates.Create(ctx, &sendly.CreateWhatsAppTemplateRequest{
+    Sender:   "+15559876543",
+    Name:     "order_shipped",
+    Language: "en_US",
+    Category: "UTILITY",
+    Body:     "Hi {{1}}, your order {{2}} has shipped!",
+    Examples: map[string]string{"1": "Sam", "2": "#4821"},
+})
+fmt.Println(template.Status) // "PENDING"
+
+// 5. Check the 24-hour window, then send
+window, err := client.WhatsApp.Window(ctx, "+15559876543", "+15551234567")
+if window.Open {
+    // Free-form text (or media with a caption via MediaUrls + Text)
+    msg, err := client.Messages.SendWhatsApp(ctx, &sendly.SendWhatsAppMessageRequest{
+        To:   "+15551234567",
+        From: "+15559876543",
+        Text: "Your table is ready!",
+    })
+    fmt.Println(msg.ID)
+} else {
+    // Approved template — works regardless of the window
+    msg, err := client.Messages.SendWhatsApp(ctx, &sendly.SendWhatsAppMessageRequest{
+        To:   "+15551234567",
+        From: "+15559876543",
+        Template: &sendly.WhatsAppTemplateSendParams{
+            Name:      "order_shipped",
+            Language:  "en_US",
+            Variables: map[string]string{"1": "Sam", "2": "#4821"},
+        },
+    })
+    fmt.Println(msg.WhatsApp.Kind) // "template"
+}
+```
+
 ## Webhooks
 
 ```go

@@ -116,6 +116,112 @@ type SendMessageRequest struct {
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
+// WhatsAppTemplateButtonVariables supplies variable values for one
+// dynamic-URL button on an approved WhatsApp template.
+type WhatsAppTemplateButtonVariables struct {
+	// Index is the zero-based index of the button on the approved template.
+	Index int `json:"index"`
+	// Variables are values for the button's URL placeholders, keyed by placeholder number: {"1": "4821"}.
+	Variables map[string]string `json:"variables"`
+}
+
+// WhatsAppTemplateSendParams is the approved WhatsApp template to send, with
+// its variable values.
+type WhatsAppTemplateSendParams struct {
+	// Name is the template name as approved (e.g. "order_shipped").
+	Name string `json:"name"`
+	// Language is the template language code (e.g. "en_US") — must match the approved template's language exactly.
+	Language string `json:"language"`
+	// Variables are body variable values keyed by placeholder number: {"1": "Acme Inc", "2": "#4821"}.
+	Variables map[string]string `json:"variables,omitempty"`
+	// Buttons are variable values for dynamic-URL buttons.
+	Buttons []WhatsAppTemplateButtonVariables `json:"buttons,omitempty"`
+}
+
+// SendWhatsAppMessageRequest is the request to send a WhatsApp message.
+// Provide exactly one of:
+//   - Text — free-form text; only deliverable inside an open 24-hour
+//     customer-service window (the recipient messaged you in the last 24h)
+//   - MediaUrls — a single media attachment (optional Text becomes its
+//     caption); also window-bound
+//   - Template — an approved template; works regardless of the window
+//
+// WhatsApp sends require a live API key and a From number that has been
+// connected to WhatsApp (see WhatsAppSignupService).
+type SendWhatsAppMessageRequest struct {
+	// Channel selects the WhatsApp channel; SendWhatsApp sets it to "whatsapp" automatically.
+	Channel string `json:"channel"`
+	// To is the destination phone number in E.164 format (required).
+	To string `json:"to"`
+	// From is the sending number in E.164 format (required) — must be one of
+	// your numbers with an active WhatsApp connection.
+	From string `json:"from"`
+	// Text is the free-form message text (max 4096 bytes), or the caption
+	// when MediaUrls is provided (max 1024 bytes). Requires an open 24-hour
+	// window — outside it the API rejects with whatsapp_window_closed; send
+	// a Template instead.
+	Text string `json:"text,omitempty"`
+	// MediaUrls is the media attachment URL. WhatsApp accepts exactly one
+	// per message. Must be a publicly accessible HTTPS URL.
+	MediaUrls []string `json:"mediaUrls,omitempty"`
+	// Template is the approved template to send. Works regardless of the 24-hour window.
+	Template *WhatsAppTemplateSendParams `json:"template,omitempty"`
+	// Metadata is custom JSON metadata to attach to the message (max 4KB).
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// WhatsAppSentTemplate is the template a WhatsApp message was sent with.
+type WhatsAppSentTemplate struct {
+	// Name is the template name.
+	Name string `json:"name"`
+	// Language is the template language code.
+	Language string `json:"language"`
+	// Category is the billed category: "marketing", "utility", or
+	// "authentication" (Meta reviews and may reclassify templates; the
+	// category on the send response is what was billed).
+	Category string `json:"category"`
+}
+
+// WhatsAppMessageDetails contains the WhatsApp-specific details on a sent message.
+type WhatsAppMessageDetails struct {
+	// Kind is what was sent: "text", "media", or "template".
+	Kind string `json:"kind"`
+	// Template is the template that was sent (template sends only).
+	Template *WhatsAppSentTemplate `json:"template,omitempty"`
+	// MessageID is the WhatsApp message id — nil until the first delivery
+	// report lands; populated on the message record afterwards.
+	MessageID *string `json:"messageId,omitempty"`
+}
+
+// WhatsAppMessage is a sent WhatsApp message.
+type WhatsAppMessage struct {
+	// ID is the unique message identifier.
+	ID string `json:"id"`
+	// Channel is always "whatsapp".
+	Channel string `json:"channel"`
+	// MessageFormat is always "whatsapp".
+	MessageFormat string `json:"message_format"`
+	// To is the destination phone number.
+	To string `json:"to"`
+	// From is the sending number.
+	From string `json:"from"`
+	// Text is the body text for free-form text sends; nil for template and media sends.
+	Text *string `json:"text,omitempty"`
+	// Status is the delivery status.
+	Status MessageStatus `json:"status"`
+	// Segments is always 1 — WhatsApp has no segment concept.
+	Segments int `json:"segments"`
+	// CreditsUsed is the credits charged for this message (priced by
+	// destination country and category).
+	CreditsUsed int `json:"creditsUsed"`
+	// WhatsApp contains the WhatsApp-specific details.
+	WhatsApp WhatsAppMessageDetails `json:"whatsapp"`
+	// CreatedAt is when the message was created.
+	CreatedAt string `json:"createdAt"`
+	// Metadata contains custom JSON metadata attached to the message.
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
+
 // SendGroupMessageRequest is the request to send a group MMS to multiple
 // recipients (US/Canada only). Group messaging is an A2P 10DLC capability:
 // the sending number must be an MMS-enabled, 10DLC-registered number you own.

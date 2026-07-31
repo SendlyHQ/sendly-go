@@ -32,6 +32,39 @@ func (s *MessagesService) Send(ctx context.Context, req *SendMessageRequest) (*M
 	return &resp, nil
 }
 
+// SendWhatsApp sends a WhatsApp message: free-form text, media with an
+// optional caption, or an approved template.
+//
+// Requires a live API key and a From number with an active WhatsApp
+// connection (see client.WhatsApp.Signup). Free-form Text and media only
+// deliver inside an open 24-hour customer-service window — outside it, send
+// an approved Template instead (check with client.WhatsApp.Window).
+func (s *MessagesService) SendWhatsApp(ctx context.Context, req *SendWhatsAppMessageRequest) (*WhatsAppMessage, error) {
+	if req == nil {
+		return nil, &ValidationError{APIError: APIError{Message: "request is required"}}
+	}
+	if req.To == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "to is required"}}
+	}
+	if req.From == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "from is required"}}
+	}
+	if req.Text == "" && len(req.MediaUrls) == 0 && req.Template == nil {
+		return nil, &ValidationError{APIError: APIError{Message: "either text, media_urls, or template is required"}}
+	}
+
+	body := *req
+	body.Channel = "whatsapp"
+
+	var resp WhatsAppMessage
+	err := s.client.request(ctx, "POST", "/messages", &body, &resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
+}
+
 // SendGroup sends a group MMS to 2-8 US/Canada recipients.
 //
 // Everyone in the group shares one thread and replies fan out to all

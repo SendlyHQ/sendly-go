@@ -76,6 +76,8 @@ type Client struct {
 	BusinessUpgrade *BusinessUpgradeService
 	// Links provides access to branded URL-shortening operations.
 	Links *LinksService
+	// WhatsApp provides access to WhatsApp channel operations (signup, senders, templates, windows).
+	WhatsApp *WhatsAppService
 
 	rateLimiter *rate.Limiter
 }
@@ -172,6 +174,12 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 	}
 	c.BusinessUpgrade = &BusinessUpgradeService{client: c}
 	c.Links = &LinksService{client: c}
+	c.WhatsApp = &WhatsAppService{
+		client:    c,
+		Signup:    &WhatsAppSignupService{client: c},
+		Senders:   &WhatsAppSendersService{client: c},
+		Templates: &WhatsAppTemplatesService{client: c},
+	}
 
 	return c
 }
