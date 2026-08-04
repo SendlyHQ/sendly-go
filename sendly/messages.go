@@ -65,6 +65,40 @@ func (s *MessagesService) SendWhatsApp(ctx context.Context, req *SendWhatsAppMes
 	return &resp, nil
 }
 
+// SendRcs sends an RCS message: rich text with optional tappable
+// suggestions, or a standalone rich card.
+//
+// Requires a live API key and a sendable RCS agent on the workspace (see
+// client.RCS). When the recipient's device or network doesn't support RCS,
+// text sends fall back to plain SMS (billed as SMS) — check FellBackTo (or
+// Channel) on the response to see which leg delivered. Card sends have no
+// SMS form and never fall back.
+func (s *MessagesService) SendRcs(ctx context.Context, req *SendRcsMessageRequest) (*RcsMessage, error) {
+	if req == nil {
+		return nil, &ValidationError{APIError: APIError{Message: "request is required"}}
+	}
+	if req.To == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "to is required"}}
+	}
+	if (req.Text == "") == (req.Card == nil) {
+		return nil, &ValidationError{APIError: APIError{Message: "exactly one of text or card is required"}}
+	}
+	if req.Card != nil && len(req.Suggestions) > 0 {
+		return nil, &ValidationError{APIError: APIError{Message: "suggestions ride on text messages — put card buttons in card.suggestions"}}
+	}
+
+	body := *req
+	body.Channel = "rcs"
+
+	var resp RcsMessage
+	err := s.client.request(ctx, "POST", "/messages", &body, &resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
+}
+
 // SendGroup sends a group MMS to 2-8 US/Canada recipients.
 //
 // Everyone in the group shares one thread and replies fan out to all

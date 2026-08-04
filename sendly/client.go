@@ -78,6 +78,8 @@ type Client struct {
 	Links *LinksService
 	// WhatsApp provides access to WhatsApp channel operations (signup, senders, templates, windows).
 	WhatsApp *WhatsAppService
+	// RCS provides access to RCS channel operations (agents, capability checks).
+	RCS *RCSService
 
 	rateLimiter *rate.Limiter
 }
@@ -179,6 +181,10 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 		Signup:    &WhatsAppSignupService{client: c},
 		Senders:   &WhatsAppSendersService{client: c},
 		Templates: &WhatsAppTemplatesService{client: c},
+	}
+	c.RCS = &RCSService{
+		client: c,
+		Agents: &RCSAgentsService{client: c},
 	}
 
 	return c

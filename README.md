@@ -334,6 +334,103 @@ if window.Open {
 }
 ```
 
+Every connected sender has a WhatsApp Business profile — the name, photo, and
+business details recipients see when they tap your number. Read it and edit it
+in place (send only the fields you want to change; `About` is capped at 139
+characters and `Description` at 512):
+
+```go
+profile, err := client.WhatsApp.Senders.GetProfile(ctx, "+15559876543")
+if err != nil {
+    log.Fatal(err)
+}
+if profile.DisplayName != nil {
+    fmt.Println(*profile.DisplayName)
+}
+
+updated, err := client.WhatsApp.Senders.UpdateProfile(ctx, "+15559876543", &sendly.UpdateWhatsAppSenderProfileRequest{
+    About:       "Fresh bread, daily.",
+    Description: "Family bakery in Austin since 1998.",
+    Email:       "hello@example.com",
+    Website:     "https://example.com",
+})
+```
+
+## RCS
+
+RCS is the branded, rich upgrade to SMS: your verified agent name and logo
+instead of a bare number, plus tappable suggestion chips and rich cards, on
+Android and iOS 18+ handsets. Messages send through an RCS agent registered
+for your brand — contact support to set one up. RCS requires a live API key.
+
+Text sends fall back to plain SMS automatically when the recipient's device or
+network doesn't support RCS, so one call covers your whole list. The fallback
+is billed as SMS and is visible on the response: check `FellBackTo` (or
+`Channel`).
+
+```go
+// 1. Find your agents. Sendable means it can send right now.
+agents, err := client.RCS.Agents.List(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+for _, a := range agents.Agents {
+    fmt.Printf("%s: %s (sendable: %t)\n", a.ID, a.Name, a.Sendable)
+}
+
+// 2. Optional pre-flight — sending handles the fallback on its own.
+capability, err := client.RCS.Capability(ctx, "+15551234567", "")
+fmt.Println(capability.Capable, capability.Features)
+
+// 3. Text with tappable chips
+msg, err := client.Messages.SendRcs(ctx, &sendly.SendRcsMessageRequest{
+    To:   "+15551234567",
+    Text: "Your order #4821 has shipped!",
+    Suggestions: []sendly.RcsSuggestion{
+        {Reply: &sendly.RcsSuggestedReply{Text: "Track it", PostbackData: "track_4821"}},
+        {Action: &sendly.RcsSuggestedAction{
+            Text:         "View receipt",
+            PostbackData: "receipt_4821",
+            URL:          "https://example.com/receipts/4821",
+        }},
+    },
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+if msg.FellBackTo == "sms" {
+    // Delivered as SMS — suggestions have no SMS form and were dropped.
+    fmt.Println("fell back to SMS:", msg.RCS.SuggestionsDropped)
+} else {
+    fmt.Println("delivered over RCS from", msg.RCS.AgentName)
+}
+
+// 4. A rich card. Cards have no SMS form, so they never fall back —
+//    a recipient without RCS gets a 422 (rcs_not_supported_for_recipient).
+card, err := client.Messages.SendRcs(ctx, &sendly.SendRcsMessageRequest{
+    To: "+15551234567",
+    Card: &sendly.RcsCard{
+        Title:       "Your table is ready",
+        Description: "Head to the host stand — we'll hold it for 10 minutes.",
+        MediaURL:    "https://example.com/table.jpg",
+        Orientation: "vertical",
+        Suggestions: []sendly.RcsSuggestion{
+            {Reply: &sendly.RcsSuggestedReply{Text: "On my way", PostbackData: "otw"}},
+        },
+    },
+})
+fmt.Println(card.RCS.Kind) // "card"
+
+// Turn the fallback off to require RCS delivery (422 when unsupported).
+rcsOnly := false
+_, err = client.Messages.SendRcs(ctx, &sendly.SendRcsMessageRequest{
+    To:            "+15551234567",
+    Text:          "RCS only.",
+    FallbackToSms: &rcsOnly,
+})
+```
+
 ## Webhooks
 
 ```go

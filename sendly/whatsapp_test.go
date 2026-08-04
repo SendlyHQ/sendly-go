@@ -255,6 +255,193 @@ func TestWhatsAppSendersList_Success(t *testing.T) {
 	}
 }
 
+func TestWhatsAppSendersGetProfile_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("expected GET request, got %s", r.Method)
+		}
+		if r.URL.Path != "/whatsapp/senders/+15559876543/profile" {
+			t.Errorf("expected path '/whatsapp/senders/+15559876543/profile', got '%s'", r.URL.Path)
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{
+			"phoneNumber": "+15559876543",
+			"displayName": "Acme Inc",
+			"profilePhotoUrl": "https://example.com/logo.png",
+			"category": "Retail",
+			"about": "Family-run since 1998",
+			"description": "Order updates and support over WhatsApp.",
+			"email": "support@example.com",
+			"website": "https://example.com",
+			"address": null
+		}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	ctx := context.Background()
+
+	profile, err := client.WhatsApp.Senders.GetProfile(ctx, "+15559876543")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if profile.PhoneNumber != "+15559876543" {
+		t.Errorf("expected PhoneNumber to be '+15559876543', got '%s'", profile.PhoneNumber)
+	}
+	if profile.DisplayName == nil || *profile.DisplayName != "Acme Inc" {
+		t.Errorf("expected DisplayName to be 'Acme Inc', got %v", profile.DisplayName)
+	}
+	if profile.ProfilePhotoURL == nil || *profile.ProfilePhotoURL != "https://example.com/logo.png" {
+		t.Errorf("expected ProfilePhotoURL to be set, got %v", profile.ProfilePhotoURL)
+	}
+	if profile.About == nil || *profile.About != "Family-run since 1998" {
+		t.Errorf("expected About to be 'Family-run since 1998', got %v", profile.About)
+	}
+	if profile.Address != nil {
+		t.Errorf("expected Address to be nil, got '%s'", *profile.Address)
+	}
+}
+
+func TestWhatsAppSendersGetProfile_EmptyPhoneNumber(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("should not make request with empty phone number")
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	ctx := context.Background()
+
+	_, err := client.WhatsApp.Senders.GetProfile(ctx, "")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !IsValidationError(err) {
+		t.Errorf("expected ValidationError, got %T", err)
+	}
+	if !strings.Contains(err.Error(), "phoneNumber is required") {
+		t.Errorf("expected error to contain 'phoneNumber is required', got '%s'", err.Error())
+	}
+}
+
+func TestWhatsAppSendersGetProfile_NotConnected(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(APIError{
+			Code:    "whatsapp_sender_not_connected",
+			Message: "This number isn't connected to WhatsApp yet.",
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	ctx := context.Background()
+
+	_, err := client.WhatsApp.Senders.GetProfile(ctx, "+15559876543")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !IsNotFoundError(err) {
+		t.Errorf("expected NotFoundError, got %T", err)
+	}
+}
+
+func TestWhatsAppSendersUpdateProfile_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PATCH" {
+			t.Errorf("expected PATCH request, got %s", r.Method)
+		}
+		if r.URL.Path != "/whatsapp/senders/+15559876543/profile" {
+			t.Errorf("expected path '/whatsapp/senders/+15559876543/profile', got '%s'", r.URL.Path)
+		}
+
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		if body["about"] != "Family-run since 1998" {
+			t.Errorf("expected about to round-trip, got '%v'", body["about"])
+		}
+		if body["website"] != "https://example.com" {
+			t.Errorf("expected website to round-trip, got '%v'", body["website"])
+		}
+		if _, ok := body["displayName"]; ok {
+			t.Error("expected displayName to be omitted")
+		}
+		if _, ok := body["description"]; ok {
+			t.Error("expected description to be omitted")
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{
+			"phoneNumber": "+15559876543",
+			"displayName": "Acme Inc",
+			"profilePhotoUrl": null,
+			"category": null,
+			"about": "Family-run since 1998",
+			"description": null,
+			"email": null,
+			"website": "https://example.com",
+			"address": null
+		}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	ctx := context.Background()
+
+	profile, err := client.WhatsApp.Senders.UpdateProfile(ctx, "+15559876543", &UpdateWhatsAppSenderProfileRequest{
+		About:   "Family-run since 1998",
+		Website: "https://example.com",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if profile.About == nil || *profile.About != "Family-run since 1998" {
+		t.Errorf("expected About to be 'Family-run since 1998', got %v", profile.About)
+	}
+	if profile.Website == nil || *profile.Website != "https://example.com" {
+		t.Errorf("expected Website to be 'https://example.com', got %v", profile.Website)
+	}
+	if profile.Description != nil {
+		t.Errorf("expected Description to be nil, got '%s'", *profile.Description)
+	}
+}
+
+func TestWhatsAppSendersUpdateProfile_ValidationErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("should not make request with validation error")
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	ctx := context.Background()
+
+	_, err := client.WhatsApp.Senders.UpdateProfile(ctx, "", &UpdateWhatsAppSenderProfileRequest{About: "Hi"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !IsValidationError(err) {
+		t.Errorf("expected ValidationError, got %T", err)
+	}
+	if !strings.Contains(err.Error(), "phoneNumber is required") {
+		t.Errorf("expected error to contain 'phoneNumber is required', got '%s'", err.Error())
+	}
+
+	_, err = client.WhatsApp.Senders.UpdateProfile(ctx, "+15559876543", nil)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !IsValidationError(err) {
+		t.Errorf("expected ValidationError, got %T", err)
+	}
+	if !strings.Contains(err.Error(), "request is required") {
+		t.Errorf("expected error to contain 'request is required', got '%s'", err.Error())
+	}
+}
+
 func TestWhatsAppTemplatesList_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" {

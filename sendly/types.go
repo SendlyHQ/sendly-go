@@ -70,6 +70,9 @@ const (
 	MessageStatusSent MessageStatus = "sent"
 	// MessageStatusDelivered means the message was delivered.
 	MessageStatusDelivered MessageStatus = "delivered"
+	// MessageStatusRead means the recipient read the message. Read receipts
+	// exist on RCS and WhatsApp only — SMS never reports one.
+	MessageStatusRead MessageStatus = "read"
 	// MessageStatusFailed means the message failed to deliver.
 	MessageStatusFailed MessageStatus = "failed"
 	// MessageStatusBounced means the message bounced (carrier rejected).
@@ -216,6 +219,137 @@ type WhatsAppMessage struct {
 	CreditsUsed int `json:"creditsUsed"`
 	// WhatsApp contains the WhatsApp-specific details.
 	WhatsApp WhatsAppMessageDetails `json:"whatsapp"`
+	// CreatedAt is when the message was created.
+	CreatedAt string `json:"createdAt"`
+	// Metadata contains custom JSON metadata attached to the message.
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// RcsSuggestedReply is a tappable reply chip on an RCS message. Tapping it
+// sends Text back, carrying PostbackData.
+type RcsSuggestedReply struct {
+	// Text is the chip label — what the recipient sees and sends back.
+	Text string `json:"text"`
+	// PostbackData is the machine-readable payload returned when the chip is tapped.
+	PostbackData string `json:"postbackData"`
+}
+
+// RcsSuggestedAction is a tappable chip on an RCS message that opens a URL.
+type RcsSuggestedAction struct {
+	// Text is the chip label.
+	Text string `json:"text"`
+	// PostbackData is the machine-readable payload returned when the chip is tapped.
+	PostbackData string `json:"postbackData"`
+	// URL is the link opened when the chip is tapped.
+	URL string `json:"url"`
+}
+
+// RcsSuggestion is a tappable chip on an RCS message. Set exactly one of
+// Reply or Action.
+type RcsSuggestion struct {
+	// Reply sends the chip text back as a reply when tapped.
+	Reply *RcsSuggestedReply `json:"reply,omitempty"`
+	// Action opens a URL when tapped.
+	Action *RcsSuggestedAction `json:"action,omitempty"`
+}
+
+// RcsCard is a standalone RCS rich card: a title and description with an
+// optional image and tappable suggestions.
+type RcsCard struct {
+	// Title is the card title (required).
+	Title string `json:"title"`
+	// Description is the card body text (required).
+	Description string `json:"description"`
+	// MediaURL is a public JPEG, PNG, or GIF image URL shown on the card.
+	MediaURL string `json:"mediaUrl,omitempty"`
+	// Orientation is the card layout: "vertical" (default) or "horizontal".
+	Orientation string `json:"orientation,omitempty"`
+	// Suggestions are tappable chips on the card.
+	Suggestions []RcsSuggestion `json:"suggestions,omitempty"`
+}
+
+// SendRcsMessageRequest is the request to send an RCS message.
+// Provide exactly one of:
+//   - Text — rich text; optional tappable Suggestions ride along
+//   - Card — a standalone rich card (title and description, with an
+//     optional image and card-level suggestions)
+//
+// When the recipient's device or network doesn't support RCS, text sends
+// fall back to plain SMS (billed as SMS) unless FallbackToSms is false;
+// suggestions have no SMS form and are dropped on the fallback. Card sends
+// have no SMS form and never fall back.
+//
+// RCS sends require a live API key and a sendable RCS agent on the
+// workspace (see RCSService).
+type SendRcsMessageRequest struct {
+	// Channel selects the RCS channel; SendRcs sets it to "rcs" automatically.
+	Channel string `json:"channel"`
+	// To is the destination phone number in E.164 format (required).
+	To string `json:"to"`
+	// AgentID is the RCS agent to send as; optional when the workspace has
+	// exactly one agent.
+	AgentID string `json:"agentId,omitempty"`
+	// Text is the message text. Exactly one of Text or Card is required.
+	Text string `json:"text,omitempty"`
+	// Suggestions are tappable chips riding on a text message (not valid
+	// with Card — put card buttons in Card.Suggestions instead).
+	Suggestions []RcsSuggestion `json:"suggestions,omitempty"`
+	// Card is the rich card to send. Exactly one of Text or Card is required.
+	Card *RcsCard `json:"card,omitempty"`
+	// FallbackToSms controls the SMS fallback for text sends when the
+	// recipient isn't RCS-capable; defaults to true when omitted.
+	FallbackToSms *bool `json:"fallbackToSms,omitempty"`
+	// Metadata is custom JSON metadata to attach to the message (max 4KB).
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// RcsMessageDetails contains the RCS-specific details on a sent message.
+type RcsMessageDetails struct {
+	// Kind is what was sent over RCS: "text" or "card". Present on messages
+	// delivered over RCS; empty on SMS fallbacks.
+	Kind string `json:"kind,omitempty"`
+	// AgentID is the RCS agent the send was routed through.
+	AgentID string `json:"agentId"`
+	// AgentName is the agent name recipients see. Present on messages
+	// delivered over RCS.
+	AgentName string `json:"agentName,omitempty"`
+	// RequestedChannel is "rcs" on SMS fallbacks — the channel that was
+	// requested before the recipient's RCS support was probed.
+	RequestedChannel string `json:"requestedChannel,omitempty"`
+	// SuggestionsDropped is true when the message fell back to SMS and its
+	// suggestions were dropped (suggestions have no SMS form).
+	SuggestionsDropped bool `json:"suggestionsDropped,omitempty"`
+}
+
+// RcsMessage is a sent RCS message — or its SMS fallback. Channel reports
+// the leg that actually delivered: check FellBackTo (or Channel) to see
+// whether the message went out over RCS or fell back to SMS.
+type RcsMessage struct {
+	// ID is the unique message identifier.
+	ID string `json:"id"`
+	// Channel is "rcs" when delivered over RCS, or "sms" when the message
+	// fell back to SMS for a recipient without RCS support.
+	Channel string `json:"channel"`
+	// FellBackTo is "sms" when the message fell back to SMS; empty on
+	// messages delivered over RCS.
+	FellBackTo string `json:"fellBackTo,omitempty"`
+	// MessageFormat matches Channel: "rcs" or "sms".
+	MessageFormat string `json:"message_format"`
+	// To is the destination phone number.
+	To string `json:"to"`
+	// From is the RCS agent name, or the SMS sender on a fallback.
+	From string `json:"from"`
+	// Text is the message text for text sends; nil for card sends.
+	Text *string `json:"text,omitempty"`
+	// Status is the delivery status.
+	Status MessageStatus `json:"status"`
+	// Segments is 1 on RCS deliveries; the SMS segment count on a fallback.
+	Segments int `json:"segments"`
+	// CreditsUsed is the credits charged — RCS pricing on an RCS delivery,
+	// SMS pricing on a fallback.
+	CreditsUsed int `json:"creditsUsed"`
+	// RCS contains the RCS-specific details.
+	RCS RcsMessageDetails `json:"rcs"`
 	// CreatedAt is when the message was created.
 	CreatedAt string `json:"createdAt"`
 	// Metadata contains custom JSON metadata attached to the message.

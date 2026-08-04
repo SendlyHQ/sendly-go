@@ -29,7 +29,8 @@ type WhatsAppSignupService struct {
 	client *Client
 }
 
-// WhatsAppSendersService lists the numbers connected (or connecting) to WhatsApp.
+// WhatsAppSendersService lists the numbers connected (or connecting) to
+// WhatsApp and manages their business profiles.
 type WhatsAppSendersService struct {
 	client *Client
 }
@@ -87,6 +88,43 @@ type WhatsAppSender struct {
 // WhatsAppSenderListResponse wraps the workspace's WhatsApp senders.
 type WhatsAppSenderListResponse struct {
 	Senders []WhatsAppSender `json:"senders"`
+}
+
+// WhatsAppSenderProfile is the WhatsApp Business profile recipients see
+// for a connected sender.
+type WhatsAppSenderProfile struct {
+	// PhoneNumber is the sender, in E.164 format.
+	PhoneNumber string `json:"phoneNumber"`
+	// DisplayName is the name recipients see; nil until set.
+	DisplayName *string `json:"displayName,omitempty"`
+	// ProfilePhotoURL is the profile photo URL (read-only); nil until set.
+	ProfilePhotoURL *string `json:"profilePhotoUrl,omitempty"`
+	// Category is the business category; nil until set.
+	Category *string `json:"category,omitempty"`
+	// About is the short line under the profile name; nil until set.
+	About *string `json:"about,omitempty"`
+	// Description is the longer business description; nil until set.
+	Description *string `json:"description,omitempty"`
+	// Email is the public contact email; nil until set.
+	Email *string `json:"email,omitempty"`
+	// Website is the public website URL; nil until set.
+	Website *string `json:"website,omitempty"`
+	// Address is the public business address; nil until set.
+	Address *string `json:"address,omitempty"`
+}
+
+// UpdateWhatsAppSenderProfileRequest edits a connected sender's WhatsApp
+// Business profile. Supply only the fields to change — at least one is
+// required; omitted fields keep their current value. About is capped at
+// 139 characters and Description at 512.
+type UpdateWhatsAppSenderProfileRequest struct {
+	DisplayName string `json:"displayName,omitempty"`
+	About       string `json:"about,omitempty"`
+	Description string `json:"description,omitempty"`
+	Category    string `json:"category,omitempty"`
+	Email       string `json:"email,omitempty"`
+	Website     string `json:"website,omitempty"`
+	Address     string `json:"address,omitempty"`
 }
 
 // WhatsAppTemplateButton is a button on a WhatsApp template. Type is "url"
@@ -229,6 +267,39 @@ func (s *WhatsAppSignupService) Get(ctx context.Context, id string) (*WhatsAppSi
 func (s *WhatsAppSendersService) List(ctx context.Context) (*WhatsAppSenderListResponse, error) {
 	var resp WhatsAppSenderListResponse
 	if err := s.client.request(ctx, "GET", "/whatsapp/senders", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// GetProfile fetches the WhatsApp Business profile recipients see for a
+// connected sender (E.164). The number must have an active WhatsApp
+// connection.
+func (s *WhatsAppSendersService) GetProfile(ctx context.Context, phoneNumber string) (*WhatsAppSenderProfile, error) {
+	if phoneNumber == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "phoneNumber is required"}}
+	}
+
+	var resp WhatsAppSenderProfile
+	if err := s.client.request(ctx, "GET", "/whatsapp/senders/"+url.PathEscape(phoneNumber)+"/profile", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// UpdateProfile edits a connected sender's WhatsApp Business profile and
+// returns the updated profile. Supply only the fields to change — at least
+// one is required. Requires a live API key.
+func (s *WhatsAppSendersService) UpdateProfile(ctx context.Context, phoneNumber string, req *UpdateWhatsAppSenderProfileRequest) (*WhatsAppSenderProfile, error) {
+	if phoneNumber == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "phoneNumber is required"}}
+	}
+	if req == nil {
+		return nil, &ValidationError{APIError: APIError{Message: "request is required"}}
+	}
+
+	var resp WhatsAppSenderProfile
+	if err := s.client.request(ctx, "PATCH", "/whatsapp/senders/"+url.PathEscape(phoneNumber)+"/profile", req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
