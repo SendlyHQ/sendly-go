@@ -852,7 +852,10 @@ type Account struct {
 	ID string `json:"id"`
 	// Email is the email address.
 	Email string `json:"email"`
-	// Name is the display name.
+	// Name is the display name. Always nil: the account payload carries no
+	// display name.
+	//
+	// Deprecated: use Email to identify the account.
 	Name *string `json:"name,omitempty"`
 	// CreatedAt is when the account was created.
 	CreatedAt string `json:"createdAt"`
@@ -907,7 +910,10 @@ type APIKey struct {
 	Type string `json:"type"`
 	// Prefix is the key prefix for identification.
 	Prefix string `json:"prefix"`
-	// LastFour is the last 4 characters of the key.
+	// LastFour is the last 4 characters of the key. Always empty: the key
+	// payload carries only the leading prefix, never the tail.
+	//
+	// Deprecated: use Prefix to identify a key.
 	LastFour string `json:"lastFour"`
 	// Permissions is the list of permissions granted.
 	Permissions []string `json:"permissions"`

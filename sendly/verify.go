@@ -128,7 +128,7 @@ type ValidateSessionResponse struct {
 // Create creates a hosted verification session.
 func (s *SessionsService) Create(ctx context.Context, req *CreateSessionRequest) (*VerifySession, error) {
 	var resp VerifySession
-	err := s.client.doRequest(ctx, "POST", "/verify/sessions", req, &resp)
+	err := s.client.request(ctx, "POST", "/verify/sessions", req, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func (s *SessionsService) Create(ctx context.Context, req *CreateSessionRequest)
 // Validate validates a session token after user completes verification.
 func (s *SessionsService) Validate(ctx context.Context, req *ValidateSessionRequest) (*ValidateSessionResponse, error) {
 	var resp ValidateSessionResponse
-	err := s.client.doRequest(ctx, "POST", "/verify/sessions/validate", req, &resp)
+	err := s.client.request(ctx, "POST", "/verify/sessions/validate", req, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func (s *SessionsService) Validate(ctx context.Context, req *ValidateSessionRequ
 // Send sends an OTP verification code.
 func (s *VerifyService) Send(ctx context.Context, req *SendVerificationRequest) (*SendVerificationResponse, error) {
 	var resp SendVerificationResponse
-	err := s.client.doRequest(ctx, "POST", "/verify", req, &resp)
+	err := s.client.request(ctx, "POST", "/verify", req, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +158,7 @@ func (s *VerifyService) Send(ctx context.Context, req *SendVerificationRequest) 
 // Resend resends an OTP verification code.
 func (s *VerifyService) Resend(ctx context.Context, id string) (*SendVerificationResponse, error) {
 	var resp SendVerificationResponse
-	err := s.client.doRequest(ctx, "POST", fmt.Sprintf("/verify/%s/resend", id), nil, &resp)
+	err := s.client.request(ctx, "POST", fmt.Sprintf("/verify/%s/resend", id), nil, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +168,7 @@ func (s *VerifyService) Resend(ctx context.Context, id string) (*SendVerificatio
 // Check verifies an OTP code.
 func (s *VerifyService) Check(ctx context.Context, id string, req *CheckVerificationRequest) (*CheckVerificationResponse, error) {
 	var resp CheckVerificationResponse
-	err := s.client.doRequest(ctx, "POST", fmt.Sprintf("/verify/%s/check", id), req, &resp)
+	err := s.client.request(ctx, "POST", fmt.Sprintf("/verify/%s/check", id), req, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func (s *VerifyService) Check(ctx context.Context, id string, req *CheckVerifica
 // Get retrieves a verification by ID.
 func (s *VerifyService) Get(ctx context.Context, id string) (*Verification, error) {
 	var resp Verification
-	err := s.client.doRequest(ctx, "GET", fmt.Sprintf("/verify/%s", id), nil, &resp)
+	err := s.client.request(ctx, "GET", fmt.Sprintf("/verify/%s", id), nil, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +202,7 @@ func (s *VerifyService) List(ctx context.Context, opts *VerificationListOptions)
 	}
 
 	var resp VerificationListResponse
-	err := s.client.doRequest(ctx, "GET", path, nil, &resp)
+	err := s.client.request(ctx, "GET", path, nil, &resp)
 	if err != nil {
 		return nil, err
 	}

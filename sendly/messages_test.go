@@ -524,3 +524,33 @@ func TestMessagesGet_URLEncoding(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+type legacyMessagesSender interface {
+	Send(context.Context, *SendMessageRequest) (*Message, error)
+	SendWhatsApp(context.Context, *SendWhatsAppMessageRequest) (*WhatsAppMessage, error)
+	SendRcs(context.Context, *SendRcsMessageRequest) (*RcsMessage, error)
+	SendGroup(context.Context, *SendGroupMessageRequest) (*GroupMessageResponse, error)
+	Schedule(context.Context, *ScheduleMessageRequest) (*ScheduledMessage, error)
+	SendBatch(context.Context, *SendBatchRequest) (*BatchMessageResponse, error)
+}
+
+var _ legacyMessagesSender = (*MessagesService)(nil)
+
+func TestMessagesService_LegacyMethodValues(t *testing.T) {
+	client := NewClient("test-api-key")
+
+	send := client.Messages.Send
+	sendWhatsApp := client.Messages.SendWhatsApp
+	sendRcs := client.Messages.SendRcs
+	sendGroup := client.Messages.SendGroup
+	schedule := client.Messages.Schedule
+	sendBatch := client.Messages.SendBatch
+
+	var legacy legacyMessagesSender = client.Messages
+	if legacy == nil {
+		t.Fatal("expected MessagesService to satisfy the legacy send surface")
+	}
+	if send == nil || sendWhatsApp == nil || sendRcs == nil || sendGroup == nil || schedule == nil || sendBatch == nil {
+		t.Fatal("expected legacy method values to be non-nil")
+	}
+}

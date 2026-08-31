@@ -192,15 +192,27 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 
 // request performs an HTTP request against a versioned API path (relative to
 // BaseURL) with retries and rate limiting.
-func (c *Client) request(ctx context.Context, method, path string, body interface{}, result interface{}) error {
-	return c.requestURL(ctx, method, c.BaseURL+path, body, result)
+func (c *Client) request(ctx context.Context, method, path string, body interface{}, result interface{}, opts ...RequestOption) error {
+	return c.requestURL(ctx, method, c.BaseURL+path, body, result, opts...)
 }
 
 // requestURL performs an HTTP request against a fully-qualified URL with
 // retries and rate limiting. request builds the URL from the versioned base;
 // unversioned endpoints (such as the URL shortener at /api/links) call this
 // directly with an absolute URL.
-func (c *Client) requestURL(ctx context.Context, method, fullURL string, body interface{}, result interface{}) error {
+func (c *Client) requestURL(ctx context.Context, method, fullURL string, body interface{}, result interface{}, opts ...RequestOption) error {
+	cfg := newRequestConfig(opts)
+
+	callerKey, err := normalizeIdempotencyKey(cfg.idempotencyKey)
+	if err != nil {
+		return err
+	}
+
+	idempotencyKey := callerKey
+	if idempotencyKey == "" && method == "POST" && cfg.autoIdempotencyKey {
+		idempotencyKey = generateIdempotencyKey()
+	}
+
 	// Wait for rate limiter
 	if err := c.rateLimiter.Wait(ctx); err != nil {
 		return &NetworkError{Message: "rate limiter error", Err: err}
@@ -218,7 +230,7 @@ func (c *Client) requestURL(ctx context.Context, method, fullURL string, body in
 			}
 		}
 
-		err := c.doRequest(ctx, method, fullURL, body, result)
+		err := c.doRequestWithKey(ctx, method, fullURL, body, result, idempotencyKey)
 		if err == nil {
 			return nil
 		}
@@ -239,6 +251,16 @@ func (c *Client) requestURL(ctx context.Context, method, fullURL string, body in
 
 		lastErr = err
 
+		// A 5xx means the server responded (and may have cached that
+		// response under the key), so an auto-generated key is rotated to
+		// let the retry re-execute. Timeouts and network errors leave the
+		// outcome unknown — the key is kept so the server can dedupe a
+		// request that actually went through. Caller-supplied keys are
+		// never rotated.
+		if callerKey == "" && idempotencyKey != "" && isServerErrorResponse(err) {
+			idempotencyKey = generateIdempotencyKey()
+		}
+
 		// Check for rate limit error with Retry-After
 		if rateLimitErr, ok := err.(*RateLimitError); ok {
 			if rateLimitErr.RetryAfter > 0 {
@@ -255,7 +277,19 @@ func (c *Client) requestURL(ctx context.Context, method, fullURL string, body in
 }
 
 // doRequest performs a single HTTP request against a fully-qualified URL.
+// POST requests that reach it outside the retrying pipeline still get a
+// single-use auto-generated idempotency key.
 func (c *Client) doRequest(ctx context.Context, method, fullURL string, body interface{}, result interface{}) error {
+	idempotencyKey := ""
+	if method == "POST" {
+		idempotencyKey = generateIdempotencyKey()
+	}
+	return c.doRequestWithKey(ctx, method, fullURL, body, result, idempotencyKey)
+}
+
+// doRequestWithKey performs a single HTTP request against a fully-qualified
+// URL, attaching the given idempotency key when non-empty.
+func (c *Client) doRequestWithKey(ctx context.Context, method, fullURL string, body interface{}, result interface{}, idempotencyKey string) error {
 	var bodyReader io.Reader
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
@@ -274,6 +308,9 @@ func (c *Client) doRequest(ctx context.Context, method, fullURL string, body int
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "sendly-go/"+Version)
+	if idempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", idempotencyKey)
+	}
 	if c.OrganizationID != "" {
 		req.Header.Set("X-Organization-Id", c.OrganizationID)
 	}

@@ -2,6 +2,8 @@ package sendly
 
 import (
 	"context"
+	"encoding/json"
+	"reflect"
 	"strconv"
 )
 
@@ -10,12 +12,15 @@ type AccountService struct {
 	client *Client
 }
 
-// accountAPIResponse is the API response with snake_case fields.
+// accountAPIResponse is the API response envelope. The account fields arrive
+// nested under "user" with camelCase keys.
 type accountAPIResponse struct {
-	ID        string  `json:"id"`
-	Email     string  `json:"email"`
-	Name      *string `json:"name,omitempty"`
-	CreatedAt string  `json:"created_at"`
+	User struct {
+		ID        string  `json:"id"`
+		Email     string  `json:"email"`
+		Name      *string `json:"name,omitempty"`
+		CreatedAt string  `json:"createdAt"`
+	} `json:"user"`
 }
 
 // creditsAPIResponse is the API response with snake_case fields.
@@ -36,18 +41,32 @@ type transactionAPIResponse struct {
 	CreatedAt    string  `json:"created_at"`
 }
 
-// apiKeyAPIResponse is the API response with snake_case fields.
+// apiKeyAPIResponse is the API response for a single API key.
 type apiKeyAPIResponse struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Type        string   `json:"type"`
-	Prefix      string   `json:"prefix"`
-	LastFour    string   `json:"last_four"`
-	Permissions []string `json:"permissions"`
-	CreatedAt   string   `json:"created_at"`
-	LastUsedAt  *string  `json:"last_used_at,omitempty"`
-	ExpiresAt   *string  `json:"expires_at,omitempty"`
-	IsRevoked   bool     `json:"is_revoked"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Type       string   `json:"type"`
+	Prefix     string   `json:"prefix"`
+	Scopes     []string `json:"scopes"`
+	IsActive   bool     `json:"isActive"`
+	CreatedAt  string   `json:"createdAt"`
+	LastUsedAt *string  `json:"lastUsedAt,omitempty"`
+	ExpiresAt  *string  `json:"expiresAt,omitempty"`
+	RevokedAt  *string  `json:"revokedAt,omitempty"`
+}
+
+func (a apiKeyAPIResponse) toAPIKey() APIKey {
+	return APIKey{
+		ID:          a.ID,
+		Name:        a.Name,
+		Type:        a.Type,
+		Prefix:      a.Prefix,
+		Permissions: a.Scopes,
+		CreatedAt:   a.CreatedAt,
+		LastUsedAt:  a.LastUsedAt,
+		ExpiresAt:   a.ExpiresAt,
+		IsRevoked:   !a.IsActive,
+	}
 }
 
 // Get retrieves account information.
@@ -56,12 +75,18 @@ func (s *AccountService) Get(ctx context.Context) (*Account, error) {
 	if err := s.client.request(ctx, "GET", "/account", nil, &apiResp); err != nil {
 		return nil, err
 	}
+	if apiResp.User.ID == "" {
+		return nil, &SendlyError{APIError: APIError{
+			Code:    "invalid_response",
+			Message: "account response did not include user details",
+		}}
+	}
 
 	return &Account{
-		ID:        apiResp.ID,
-		Email:     apiResp.Email,
-		Name:      apiResp.Name,
-		CreatedAt: apiResp.CreatedAt,
+		ID:        apiResp.User.ID,
+		Email:     apiResp.User.Email,
+		Name:      apiResp.User.Name,
+		CreatedAt: apiResp.User.CreatedAt,
 	}, nil
 }
 
@@ -99,13 +124,15 @@ func (s *AccountService) GetCreditTransactions(ctx context.Context, opts *ListCr
 		path += buildQueryString(params)
 	}
 
-	var apiResp []transactionAPIResponse
+	var apiResp struct {
+		Transactions []transactionAPIResponse `json:"transactions"`
+	}
 	if err := s.client.request(ctx, "GET", path, nil, &apiResp); err != nil {
 		return nil, err
 	}
 
-	transactions := make([]CreditTransaction, len(apiResp))
-	for i, api := range apiResp {
+	transactions := make([]CreditTransaction, len(apiResp.Transactions))
+	for i, api := range apiResp.Transactions {
 		transactions[i] = CreditTransaction{
 			ID:           api.ID,
 			Type:         TransactionType(api.Type),
@@ -148,83 +175,176 @@ func (s *AccountService) TransferCredits(ctx context.Context, req TransferCredit
 
 // ListAPIKeys retrieves all API keys for the account.
 func (s *AccountService) ListAPIKeys(ctx context.Context) ([]APIKey, error) {
-	var apiResp []apiKeyAPIResponse
-	if err := s.client.request(ctx, "GET", "/keys", nil, &apiResp); err != nil {
+	var apiResp struct {
+		Keys []apiKeyAPIResponse `json:"keys"`
+	}
+	if err := s.client.request(ctx, "GET", "/account/keys", nil, &apiResp); err != nil {
 		return nil, err
 	}
 
-	keys := make([]APIKey, len(apiResp))
-	for i, api := range apiResp {
-		keys[i] = APIKey{
-			ID:          api.ID,
-			Name:        api.Name,
-			Type:        api.Type,
-			Prefix:      api.Prefix,
-			LastFour:    api.LastFour,
-			Permissions: api.Permissions,
-			CreatedAt:   api.CreatedAt,
-			LastUsedAt:  api.LastUsedAt,
-			ExpiresAt:   api.ExpiresAt,
-			IsRevoked:   api.IsRevoked,
-		}
+	keys := make([]APIKey, len(apiResp.Keys))
+	for i, api := range apiResp.Keys {
+		keys[i] = api.toAPIKey()
 	}
 	return keys, nil
 }
 
 // GetAPIKey retrieves a specific API key by ID.
 func (s *AccountService) GetAPIKey(ctx context.Context, keyID string) (*APIKey, error) {
+	if keyID == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "API key ID is required"}}
+	}
+
 	var apiResp apiKeyAPIResponse
-	if err := s.client.request(ctx, "GET", "/keys/"+keyID, nil, &apiResp); err != nil {
+	if err := s.client.request(ctx, "GET", "/account/keys/"+keyID, nil, &apiResp); err != nil {
 		return nil, err
 	}
 
-	return &APIKey{
-		ID:          apiResp.ID,
-		Name:        apiResp.Name,
-		Type:        apiResp.Type,
-		Prefix:      apiResp.Prefix,
-		LastFour:    apiResp.LastFour,
-		Permissions: apiResp.Permissions,
-		CreatedAt:   apiResp.CreatedAt,
-		LastUsedAt:  apiResp.LastUsedAt,
-		ExpiresAt:   apiResp.ExpiresAt,
-		IsRevoked:   apiResp.IsRevoked,
-	}, nil
+	key := apiResp.toAPIKey()
+	return &key, nil
+}
+
+// APIKeyUsageSummary is the aggregate usage for an API key.
+type APIKeyUsageSummary struct {
+	TotalRequests int     `json:"totalRequests"`
+	TotalCredits  int     `json:"totalCredits"`
+	LastUsed      *string `json:"lastUsed,omitempty"`
+}
+
+// APIKeyUsageRequest is one recent request made with an API key.
+type APIKeyUsageRequest struct {
+	Endpoint    string `json:"endpoint"`
+	Method      string `json:"method"`
+	StatusCode  int    `json:"statusCode"`
+	CreditsUsed int    `json:"creditsUsed"`
+	CreatedAt   string `json:"createdAt"`
+}
+
+// APIKeyUsageEndpoint is a per-endpoint call count for an API key.
+type APIKeyUsageEndpoint struct {
+	Endpoint string `json:"endpoint"`
+	Count    int    `json:"count"`
 }
 
 // APIKeyUsage contains usage statistics for an API key.
 type APIKeyUsage struct {
-	KeyID             string `json:"keyId"`
-	MessagesSent      int    `json:"messagesSent"`
-	MessagesDelivered int    `json:"messagesDelivered"`
-	MessagesFailed    int    `json:"messagesFailed"`
-	CreditsUsed       int    `json:"creditsUsed"`
-	PeriodStart       string `json:"periodStart"`
-	PeriodEnd         string `json:"periodEnd"`
+	KeyID             string                `json:"keyId"`
+	KeyName           string                `json:"keyName"`
+	Summary           APIKeyUsageSummary    `json:"summary"`
+	RecentRequests    []APIKeyUsageRequest  `json:"recentRequests"`
+	EndpointBreakdown []APIKeyUsageEndpoint `json:"endpointBreakdown"`
+
+	// MessagesSent is always 0.
+	//
+	// Deprecated: usage is reported per API request, not per message. Use
+	// Summary.TotalRequests for call volume, or Messages.List to count
+	// messages.
+	MessagesSent int `json:"messagesSent"`
+	// MessagesDelivered is always 0.
+	//
+	// Deprecated: usage is reported per API request, not per message. Use
+	// Messages.List and count messages with status "delivered".
+	MessagesDelivered int `json:"messagesDelivered"`
+	// MessagesFailed is always 0.
+	//
+	// Deprecated: usage is reported per API request, not per message. Use
+	// Messages.List and count messages with status "failed".
+	MessagesFailed int `json:"messagesFailed"`
+	// CreditsUsed mirrors Summary.TotalCredits.
+	//
+	// Deprecated: use Summary.TotalCredits.
+	CreditsUsed int `json:"creditsUsed"`
+	// PeriodStart is always empty.
+	//
+	// Deprecated: usage covers the most recent requests rather than a
+	// billing period. Use RecentRequests[].CreatedAt for the window covered.
+	PeriodStart string `json:"periodStart"`
+	// PeriodEnd is always empty.
+	//
+	// Deprecated: usage covers the most recent requests rather than a
+	// billing period. Use Summary.LastUsed for the latest activity.
+	PeriodEnd string `json:"periodEnd"`
+}
+
+// UnmarshalJSON decodes a usage payload and mirrors it onto the deprecated
+// aggregate fields.
+func (u *APIKeyUsage) UnmarshalJSON(data []byte) error {
+	type apiKeyUsageAlias APIKeyUsage
+	var raw apiKeyUsageAlias
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	*u = APIKeyUsage(raw)
+	if u.CreditsUsed == 0 {
+		u.CreditsUsed = u.Summary.TotalCredits
+	}
+	return nil
 }
 
 // GetAPIKeyUsage retrieves usage statistics for an API key.
 func (s *AccountService) GetAPIKeyUsage(ctx context.Context, keyID string) (*APIKeyUsage, error) {
+	if keyID == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "API key ID is required"}}
+	}
+
 	var usage APIKeyUsage
-	if err := s.client.request(ctx, "GET", "/keys/"+keyID+"/usage", nil, &usage); err != nil {
+	if err := s.client.request(ctx, "GET", "/account/keys/"+keyID+"/usage", nil, &usage); err != nil {
 		return nil, err
 	}
 	return &usage, nil
 }
 
-// CreateAPIKeyRequest is the request to create a new API key.
+// CreateAPIKeyRequest is the request to create a new API key. Type is
+// required by the API and must be "test" or "live"; leave it empty to create
+// a test key. Scopes defaults to the standard set when omitted.
 type CreateAPIKeyRequest struct {
-	Name      string  `json:"name"`
-	ExpiresAt *string `json:"expiresAt,omitempty"`
+	Name      string   `json:"name"`
+	Type      string   `json:"type"`
+	Scopes    []string `json:"scopes,omitempty"`
+	ExpiresAt *string  `json:"expiresAt,omitempty"`
 }
 
 // CreateAPIKeyResponse is the response from creating an API key.
 type CreateAPIKeyResponse struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Key       string `json:"key"` // Full key value - only shown once!
+	KeyPrefix string `json:"keyPrefix"`
+	Type      string `json:"type"`
+	CreatedAt string `json:"createdAt"`
+
+	// APIKey mirrors the flat fields above. Permissions and LastFour are
+	// not returned when a key is created and stay empty.
+	//
+	// Deprecated: use ID, Name, Type, KeyPrefix and CreatedAt directly.
 	APIKey APIKey `json:"apiKey"`
-	Key    string `json:"key"` // Full key value - only shown once!
 }
 
-// CreateAPIKey creates a new API key.
+// UnmarshalJSON decodes a created key and mirrors the flat fields onto the
+// deprecated nested APIKey.
+func (r *CreateAPIKeyResponse) UnmarshalJSON(data []byte) error {
+	type createAPIKeyResponseAlias CreateAPIKeyResponse
+	var raw createAPIKeyResponseAlias
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	*r = CreateAPIKeyResponse(raw)
+	if reflect.DeepEqual(r.APIKey, APIKey{}) {
+		r.APIKey = APIKey{
+			ID:        r.ID,
+			Name:      r.Name,
+			Type:      r.Type,
+			Prefix:    r.KeyPrefix,
+			CreatedAt: r.CreatedAt,
+		}
+	}
+	return nil
+}
+
+// CreateAPIKey creates a new test API key. Use CreateAPIKeyWithOptions with
+// Type "live" to create a live key.
 func (s *AccountService) CreateAPIKey(ctx context.Context, name string) (*CreateAPIKeyResponse, error) {
 	return s.CreateAPIKeyWithOptions(ctx, CreateAPIKeyRequest{Name: name})
 }
@@ -234,6 +354,12 @@ func (s *AccountService) CreateAPIKeyWithOptions(ctx context.Context, req Create
 	if req.Name == "" {
 		return nil, &ValidationError{APIError: APIError{Message: "API key name is required"}}
 	}
+	if req.Type == "" {
+		req.Type = "test"
+	}
+	if req.Type != "test" && req.Type != "live" {
+		return nil, &ValidationError{APIError: APIError{Message: "API key type must be 'test' or 'live'"}}
+	}
 
 	var resp CreateAPIKeyResponse
 	if err := s.client.request(ctx, "POST", "/account/keys", req, &resp); err != nil {
@@ -242,13 +368,14 @@ func (s *AccountService) CreateAPIKeyWithOptions(ctx context.Context, req Create
 	return &resp, nil
 }
 
-// RevokeAPIKey revokes an API key.
+// RevokeAPIKey revokes an API key. The key currently authenticating the
+// client cannot revoke itself.
 func (s *AccountService) RevokeAPIKey(ctx context.Context, keyID string) error {
 	if keyID == "" {
 		return &ValidationError{APIError: APIError{Message: "API key ID is required"}}
 	}
 
-	return s.client.request(ctx, "DELETE", "/account/keys/"+keyID, nil, nil)
+	return s.client.request(ctx, "PATCH", "/account/keys/"+keyID+"/revoke", nil, nil)
 }
 
 // RotateAPIKeyRequest is the body for RotateAPIKey. GracePeriodHours keeps the

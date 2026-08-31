@@ -129,6 +129,7 @@ func (s *EnterpriseService) UploadVerificationDocument(ctx context.Context, file
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "sendly-go/"+Version)
+	req.Header.Set("Idempotency-Key", generateIdempotencyKey())
 	if s.client.OrganizationID != "" {
 		req.Header.Set("X-Organization-Id", s.client.OrganizationID)
 	}

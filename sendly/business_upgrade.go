@@ -395,6 +395,7 @@ func (c *Client) requestUpgradeMultipart(ctx context.Context, path string, param
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "sendly-go/"+Version)
+	req.Header.Set("Idempotency-Key", generateIdempotencyKey())
 	if c.OrganizationID != "" {
 		req.Header.Set("X-Organization-Id", c.OrganizationID)
 	}

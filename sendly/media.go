@@ -56,6 +56,7 @@ func (s *MediaService) Upload(ctx context.Context, filename string, file io.Read
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "sendly-go/"+Version)
+	req.Header.Set("Idempotency-Key", generateIdempotencyKey())
 
 	resp, err := s.client.HTTPClient.Do(req)
 	if err != nil {

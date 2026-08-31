@@ -2,6 +2,7 @@ package sendly
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 )
 
@@ -49,19 +50,56 @@ type UpdateTemplateRequest struct {
 	Text string `json:"text,omitempty"`
 }
 
-// TemplatePreview represents a template preview.
+// TemplatePreview represents a template rendered with sample values.
 type TemplatePreview struct {
-	ID           string             `json:"id"`
-	Name         string             `json:"name"`
-	OriginalText string             `json:"original_text"`
-	PreviewText  string             `json:"preview_text"`
-	Variables    []TemplateVariable `json:"variables"`
+	TemplateID     string `json:"template_id"`
+	OriginalText   string `json:"original_text"`
+	RenderedText   string `json:"rendered_text"`
+	CharacterCount int    `json:"character_count"`
+	SegmentCount   int    `json:"segment_count"`
+
+	// ID mirrors TemplateID.
+	//
+	// Deprecated: use TemplateID.
+	ID string `json:"id"`
+	// Name is always empty.
+	//
+	// Deprecated: a preview carries no template name. Read it from Get.
+	Name string `json:"name"`
+	// PreviewText mirrors RenderedText.
+	//
+	// Deprecated: use RenderedText.
+	PreviewText string `json:"preview_text"`
+	// Variables is always empty.
+	//
+	// Deprecated: a preview carries no variable definitions. Read them from
+	// Get as Template.Variables.
+	Variables []TemplateVariable `json:"variables"`
+}
+
+// UnmarshalJSON decodes a preview payload and mirrors it onto the deprecated
+// fields.
+func (p *TemplatePreview) UnmarshalJSON(data []byte) error {
+	type templatePreviewAlias TemplatePreview
+	var raw templatePreviewAlias
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	*p = TemplatePreview(raw)
+	if p.ID == "" {
+		p.ID = p.TemplateID
+	}
+	if p.PreviewText == "" {
+		p.PreviewText = p.RenderedText
+	}
+	return nil
 }
 
 // List retrieves all templates.
 func (s *TemplatesService) List(ctx context.Context) (*TemplateListResponse, error) {
 	var resp TemplateListResponse
-	err := s.client.doRequest(ctx, "GET", "/templates", nil, &resp)
+	err := s.client.request(ctx, "GET", "/templates", nil, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +109,7 @@ func (s *TemplatesService) List(ctx context.Context) (*TemplateListResponse, err
 // Presets retrieves preset templates only.
 func (s *TemplatesService) Presets(ctx context.Context) (*TemplateListResponse, error) {
 	var resp TemplateListResponse
-	err := s.client.doRequest(ctx, "GET", "/templates/presets", nil, &resp)
+	err := s.client.request(ctx, "GET", "/templates/presets", nil, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +119,7 @@ func (s *TemplatesService) Presets(ctx context.Context) (*TemplateListResponse, 
 // Get retrieves a template by ID.
 func (s *TemplatesService) Get(ctx context.Context, id string) (*Template, error) {
 	var resp Template
-	err := s.client.doRequest(ctx, "GET", fmt.Sprintf("/templates/%s", id), nil, &resp)
+	err := s.client.request(ctx, "GET", fmt.Sprintf("/templates/%s", id), nil, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +129,7 @@ func (s *TemplatesService) Get(ctx context.Context, id string) (*Template, error
 // Create creates a new template.
 func (s *TemplatesService) Create(ctx context.Context, req *CreateTemplateRequest) (*Template, error) {
 	var resp Template
-	err := s.client.doRequest(ctx, "POST", "/templates", req, &resp)
+	err := s.client.request(ctx, "POST", "/templates", req, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +139,7 @@ func (s *TemplatesService) Create(ctx context.Context, req *CreateTemplateReques
 // Update updates a template.
 func (s *TemplatesService) Update(ctx context.Context, id string, req *UpdateTemplateRequest) (*Template, error) {
 	var resp Template
-	err := s.client.doRequest(ctx, "PATCH", fmt.Sprintf("/templates/%s", id), req, &resp)
+	err := s.client.request(ctx, "PATCH", fmt.Sprintf("/templates/%s", id), req, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +149,7 @@ func (s *TemplatesService) Update(ctx context.Context, id string, req *UpdateTem
 // Publish publishes a draft template.
 func (s *TemplatesService) Publish(ctx context.Context, id string) (*Template, error) {
 	var resp Template
-	err := s.client.doRequest(ctx, "POST", fmt.Sprintf("/templates/%s/publish", id), nil, &resp)
+	err := s.client.request(ctx, "POST", fmt.Sprintf("/templates/%s/publish", id), nil, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +164,7 @@ func (s *TemplatesService) Preview(ctx context.Context, id string, variables map
 	}
 
 	var resp TemplatePreview
-	err := s.client.doRequest(ctx, "POST", fmt.Sprintf("/templates/%s/preview", id), body, &resp)
+	err := s.client.request(ctx, "POST", fmt.Sprintf("/templates/%s/preview", id), body, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +173,7 @@ func (s *TemplatesService) Preview(ctx context.Context, id string, variables map
 
 // Delete deletes a template.
 func (s *TemplatesService) Delete(ctx context.Context, id string) error {
-	return s.client.doRequest(ctx, "DELETE", fmt.Sprintf("/templates/%s", id), nil, nil)
+	return s.client.request(ctx, "DELETE", fmt.Sprintf("/templates/%s", id), nil, nil)
 }
 
 // CloneTemplateRequest represents the parameters for cloning a template.
@@ -143,7 +181,11 @@ type CloneTemplateRequest struct {
 	Name string `json:"name,omitempty"`
 }
 
-// Clone clones a template.
+// Clone copies an existing template into a new draft.
+//
+// Not available yet: the versioned API serves no clone route, so this call
+// fails with a *NotFoundError. To copy a template today, read it with Get and
+// pass its Text to Create.
 func (s *TemplatesService) Clone(ctx context.Context, id string, req *CloneTemplateRequest) (*Template, error) {
 	body := map[string]interface{}{}
 	if req != nil && req.Name != "" {
@@ -151,7 +193,7 @@ func (s *TemplatesService) Clone(ctx context.Context, id string, req *CloneTempl
 	}
 
 	var resp Template
-	err := s.client.doRequest(ctx, "POST", fmt.Sprintf("/templates/%s/clone", id), body, &resp)
+	err := s.client.request(ctx, "POST", fmt.Sprintf("/templates/%s/clone", id), body, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +210,7 @@ func (s *TemplatesService) Generate(ctx context.Context, req *GenerateTemplateRe
 	}
 
 	var resp GeneratedTemplate
-	err := s.client.doRequest(ctx, "POST", "/templates/generate", req, &resp)
+	err := s.client.request(ctx, "POST", "/templates/generate", req, &resp)
 	if err != nil {
 		return nil, err
 	}

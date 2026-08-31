@@ -13,6 +13,11 @@ type MessagesService struct {
 
 // Send sends an SMS or MMS message.
 func (s *MessagesService) Send(ctx context.Context, req *SendMessageRequest) (*Message, error) {
+	return s.SendWithOptions(ctx, req)
+}
+
+// SendWithOptions sends an SMS or MMS message with per-request options.
+func (s *MessagesService) SendWithOptions(ctx context.Context, req *SendMessageRequest, opts ...RequestOption) (*Message, error) {
 	if req == nil {
 		return nil, &ValidationError{APIError: APIError{Message: "request is required"}}
 	}
@@ -24,7 +29,7 @@ func (s *MessagesService) Send(ctx context.Context, req *SendMessageRequest) (*M
 	}
 
 	var resp Message
-	err := s.client.request(ctx, "POST", "/messages", req, &resp)
+	err := s.client.request(ctx, "POST", "/messages", req, &resp, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -40,6 +45,12 @@ func (s *MessagesService) Send(ctx context.Context, req *SendMessageRequest) (*M
 // deliver inside an open 24-hour customer-service window — outside it, send
 // an approved Template instead (check with client.WhatsApp.Window).
 func (s *MessagesService) SendWhatsApp(ctx context.Context, req *SendWhatsAppMessageRequest) (*WhatsAppMessage, error) {
+	return s.SendWhatsAppWithOptions(ctx, req)
+}
+
+// SendWhatsAppWithOptions sends a WhatsApp message with per-request
+// options. See SendWhatsApp for the channel requirements.
+func (s *MessagesService) SendWhatsAppWithOptions(ctx context.Context, req *SendWhatsAppMessageRequest, opts ...RequestOption) (*WhatsAppMessage, error) {
 	if req == nil {
 		return nil, &ValidationError{APIError: APIError{Message: "request is required"}}
 	}
@@ -57,7 +68,7 @@ func (s *MessagesService) SendWhatsApp(ctx context.Context, req *SendWhatsAppMes
 	body.Channel = "whatsapp"
 
 	var resp WhatsAppMessage
-	err := s.client.request(ctx, "POST", "/messages", &body, &resp)
+	err := s.client.request(ctx, "POST", "/messages", &body, &resp, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -74,6 +85,12 @@ func (s *MessagesService) SendWhatsApp(ctx context.Context, req *SendWhatsAppMes
 // Channel) on the response to see which leg delivered. Card sends have no
 // SMS form and never fall back.
 func (s *MessagesService) SendRcs(ctx context.Context, req *SendRcsMessageRequest) (*RcsMessage, error) {
+	return s.SendRcsWithOptions(ctx, req)
+}
+
+// SendRcsWithOptions sends an RCS message with per-request options. See
+// SendRcs for the fallback behaviour.
+func (s *MessagesService) SendRcsWithOptions(ctx context.Context, req *SendRcsMessageRequest, opts ...RequestOption) (*RcsMessage, error) {
 	if req == nil {
 		return nil, &ValidationError{APIError: APIError{Message: "request is required"}}
 	}
@@ -91,7 +108,7 @@ func (s *MessagesService) SendRcs(ctx context.Context, req *SendRcsMessageReques
 	body.Channel = "rcs"
 
 	var resp RcsMessage
-	err := s.client.request(ctx, "POST", "/messages", &body, &resp)
+	err := s.client.request(ctx, "POST", "/messages", &body, &resp, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -107,6 +124,12 @@ func (s *MessagesService) SendRcs(ctx context.Context, req *SendRcsMessageReques
 // workspace's default sender. Requires the group_mms feature (and enable_mms
 // when attaching media).
 func (s *MessagesService) SendGroup(ctx context.Context, req *SendGroupMessageRequest) (*GroupMessageResponse, error) {
+	return s.SendGroupWithOptions(ctx, req)
+}
+
+// SendGroupWithOptions sends a group MMS with per-request options. See
+// SendGroup for the sender requirements.
+func (s *MessagesService) SendGroupWithOptions(ctx context.Context, req *SendGroupMessageRequest, opts ...RequestOption) (*GroupMessageResponse, error) {
 	if req == nil {
 		return nil, &ValidationError{APIError: APIError{Message: "request is required"}}
 	}
@@ -121,7 +144,7 @@ func (s *MessagesService) SendGroup(ctx context.Context, req *SendGroupMessageRe
 	}
 
 	var resp GroupMessageResponse
-	err := s.client.request(ctx, "POST", "/messages/group", req, &resp)
+	err := s.client.request(ctx, "POST", "/messages/group", req, &resp, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -198,6 +221,12 @@ func (s *MessagesService) Get(ctx context.Context, id string) (*Message, error) 
 
 // Schedule schedules an SMS message for future delivery.
 func (s *MessagesService) Schedule(ctx context.Context, req *ScheduleMessageRequest) (*ScheduledMessage, error) {
+	return s.ScheduleWithOptions(ctx, req)
+}
+
+// ScheduleWithOptions schedules an SMS message for future delivery with
+// per-request options.
+func (s *MessagesService) ScheduleWithOptions(ctx context.Context, req *ScheduleMessageRequest, opts ...RequestOption) (*ScheduledMessage, error) {
 	if req == nil {
 		return nil, &ValidationError{APIError: APIError{Message: "request is required"}}
 	}
@@ -212,7 +241,7 @@ func (s *MessagesService) Schedule(ctx context.Context, req *ScheduleMessageRequ
 	}
 
 	var resp ScheduledMessage
-	err := s.client.request(ctx, "POST", "/messages/schedule", req, &resp)
+	err := s.client.request(ctx, "POST", "/messages/schedule", req, &resp, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -283,6 +312,12 @@ func (s *MessagesService) CancelScheduled(ctx context.Context, id string) (*Canc
 
 // SendBatch sends multiple SMS messages in a batch.
 func (s *MessagesService) SendBatch(ctx context.Context, req *SendBatchRequest) (*BatchMessageResponse, error) {
+	return s.SendBatchWithOptions(ctx, req)
+}
+
+// SendBatchWithOptions sends multiple SMS messages in a batch with
+// per-request options.
+func (s *MessagesService) SendBatchWithOptions(ctx context.Context, req *SendBatchRequest, opts ...RequestOption) (*BatchMessageResponse, error) {
 	if req == nil {
 		return nil, &ValidationError{APIError: APIError{Message: "request is required"}}
 	}
@@ -300,8 +335,11 @@ func (s *MessagesService) SendBatch(ctx context.Context, req *SendBatchRequest) 
 		}
 	}
 
+	// The batch endpoint dedupes header-less retries server-side by hashing
+	// the request content; an auto-generated key would bypass that net for
+	// identical cross-process re-runs, so only caller-supplied keys are sent.
 	var resp BatchMessageResponse
-	err := s.client.request(ctx, "POST", "/messages/batch", req, &resp)
+	err := s.client.request(ctx, "POST", "/messages/batch", req, &resp, append(opts, withoutAutoIdempotencyKey())...)
 	if err != nil {
 		return nil, err
 	}
