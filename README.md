@@ -89,6 +89,33 @@ client := sendly.NewClient("sk_live_v1_xxx",
 )
 ```
 
+## Idempotency
+
+POSTs carry an automatically generated `Idempotency-Key`, reused across the
+SDK's own timeout and network-error retries, so a retry of a request that
+already reached the API returns the original result instead of sending and
+charging again. Pass your own key with `sendly.WithIdempotencyKey` when the
+guarantee needs to outlive the process, such as a job queue that re-runs
+after a crash or your own retry loop:
+
+```go
+message, err := client.Messages.SendWithOptions(ctx, &sendly.SendMessageRequest{
+    To:   "+15551234567",
+    Text: "Your order has shipped!",
+}, sendly.WithIdempotencyKey("order-4821-shipped"))
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+Reusing a key within 24 hours returns the original response, and reusing it
+with a different body returns `422 idempotency_key_mismatch`, so derive keys
+from something stable in your domain, like an order id. `SendBatch` sends no
+automatic key, because the API already deduplicates identical batches by
+their contents.
+
+Full details: https://sendly.live/docs/idempotency
+
 ## Messages
 
 ### Send an SMS
