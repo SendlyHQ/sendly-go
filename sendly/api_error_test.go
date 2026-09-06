@@ -6,8 +6,8 @@ import (
 )
 
 func TestAPIErrorUnmarshal_ReadsErrorKey(t *testing.T) {
-	var apiErr APIError
-	if err := json.Unmarshal([]byte(`{"error": "rcs_not_enabled", "message": "off"}`), &apiErr); err != nil {
+	apiErr, err := decodeAPIError([]byte(`{"error": "rcs_not_enabled", "message": "off"}`))
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if apiErr.Code != "rcs_not_enabled" {
@@ -22,8 +22,8 @@ func TestAPIErrorUnmarshal_ReadsErrorKey(t *testing.T) {
 }
 
 func TestAPIErrorUnmarshal_CodeKeyWins(t *testing.T) {
-	var apiErr APIError
-	if err := json.Unmarshal([]byte(`{"code": "explicit", "error": "fallback", "message": "m", "details": {"k": 1}}`), &apiErr); err != nil {
+	apiErr, err := decodeAPIError([]byte(`{"code": "explicit", "error": "fallback", "message": "m", "details": {"k": 1}}`))
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if apiErr.Code != "explicit" {
@@ -35,9 +35,9 @@ func TestAPIErrorUnmarshal_CodeKeyWins(t *testing.T) {
 }
 
 func TestAPIErrorUnmarshal_IgnoresNonStringErrorAndNonFieldErrors(t *testing.T) {
-	var apiErr APIError
 	body := `{"error": {"nested": true}, "message": "m", "errors": ["plain", "strings"]}`
-	if err := json.Unmarshal([]byte(body), &apiErr); err != nil {
+	apiErr, err := decodeAPIError([]byte(body))
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if apiErr.Code != "" {
@@ -71,5 +71,21 @@ func TestAPIErrorMarshal_RoundTrip(t *testing.T) {
 	}
 	if out.Code != "c" || out.Message != "m" || len(out.Errors) != 1 || out.Errors[0].Path != "p" {
 		t.Errorf("round trip mismatch: %+v", out)
+	}
+}
+
+func TestTypedErrorsKeepTheirOwnFieldsWhenUnmarshalled(t *testing.T) {
+	// APIError must not carry an UnmarshalJSON method: it is embedded in every
+	// typed error, and a promoted method would decode only the embedded fields
+	// and silently zero the wrapper's own.
+	var rate RateLimitError
+	if err := json.Unmarshal([]byte(`{"message": "slow down", "RetryAfter": 30}`), &rate); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rate.RetryAfter != 30 {
+		t.Errorf("expected RetryAfter 30, got %d", rate.RetryAfter)
+	}
+	if rate.Message != "slow down" {
+		t.Errorf("expected the embedded Message to survive, got '%s'", rate.Message)
 	}
 }

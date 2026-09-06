@@ -344,8 +344,8 @@ func (c *Client) doRequestWithKey(ctx context.Context, method, fullURL string, b
 
 // handleErrorResponse converts HTTP error responses to typed errors.
 func (c *Client) handleErrorResponse(resp *http.Response, body []byte) error {
-	var apiErr APIError
-	if err := json.Unmarshal(body, &apiErr); err != nil {
+	apiErr, decodeErr := decodeAPIError(body)
+	if decodeErr != nil {
 		apiErr = APIError{
 			Code:    "UNKNOWN_ERROR",
 			Message: string(body),

@@ -1,8 +1,14 @@
 # sendly-go
 
-## 3.38.0
+## Unreleased
 
 ### Minor Changes
+
+- **Error decoding is a package function, not a method on `APIError`.** `APIError` is embedded in `SendlyError`, `RateLimitError`, `AuthenticationError`, `ValidationError`, `NotFoundError` and `InsufficientCreditsError`. A custom `UnmarshalJSON` on it would be promoted into all six, so unmarshalling one of those would decode only the embedded fields and silently zero the wrapper's own (a `RateLimitError`'s `RetryAfter`, for instance). Decoding happens in the client instead, and `APIError` gains only the additive `Errors []APIFieldError` field.
+
+
+## 3.38.0
+
 
 - **`client.Templates` and `client.Verify` now actually reach the API.** All 17 methods across `TemplatesService`, `VerifyService` and `SessionsService` handed a bare path such as `/templates` to an internal helper that expects a fully-qualified URL. The request never left the process: every call failed with a `*NetworkError` wrapping `unsupported protocol scheme ""`, on the first attempt, with no HTTP traffic and no retry. They now build URLs the way the working services do, and they go through the client's rate limiter and retry policy like every other call. This is the important line in this release: if you wrote code against `Templates.List`, `Presets`, `Get`, `Create`, `Update`, `Publish`, `Preview`, `Delete`, `Generate`, or against `Verify.Send`, `Resend`, `Check`, `Get`, `List`, `Verify.Sessions.Create`, `Verify.Sessions.Validate`, those calls were inert and are now live. `Create`, `Update`, `Publish` and `Delete` will really write, and `Verify.Send` and `Resend` will really send a code and consume credits. Template calls need the `templates:read` / `templates:write` scope on the key (`Templates.Generate` needs `sms:send`), verify calls need `verify:send` / `verify:read`; all of these are in the default scope set for a new key.
 - **`Templates.Clone` is the one exception and still does not work.** It was repointed with the rest, but the versioned API serves no clone route, so it returns a `*NotFoundError`. To copy a template today, read it with `Get` and pass its `Text` to `Create`. The method and `CloneTemplateRequest` are kept so existing code compiles.

@@ -466,10 +466,15 @@ type APIError struct {
 	Errors []APIFieldError `json:"errors,omitempty"`
 }
 
-// UnmarshalJSON reads the error code from either the "code" or the
-// "error" key, since the API sends the latter, and keeps a per-field
-// "errors" list when the API reports one.
-func (e *APIError) UnmarshalJSON(data []byte) error {
+// decodeAPIError reads an error body into an APIError, taking the code from
+// either the "code" or the "error" key since the API sends the latter, and
+// keeping a per-field "errors" list when the API reports one.
+//
+// Deliberately a function rather than an UnmarshalJSON method: APIError is
+// embedded in every typed error, and a method here would be promoted into all
+// of them, so decoding one of those would silently drop its own fields.
+func decodeAPIError(data []byte) (APIError, error) {
+	var e APIError
 	var raw struct {
 		Code    string                 `json:"code"`
 		Error   json.RawMessage        `json:"error"`
@@ -478,12 +483,11 @@ func (e *APIError) UnmarshalJSON(data []byte) error {
 		Errors  json.RawMessage        `json:"errors"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
+		return e, err
 	}
 	e.Code = raw.Code
 	e.Message = raw.Message
 	e.Details = raw.Details
-	e.Errors = nil
 	if e.Code == "" && len(raw.Error) > 0 {
 		var code string
 		if json.Unmarshal(raw.Error, &code) == nil {
@@ -496,7 +500,7 @@ func (e *APIError) UnmarshalJSON(data []byte) error {
 			e.Errors = fields
 		}
 	}
-	return nil
+	return e, nil
 }
 
 // ScheduledMessageStatus represents the status of a scheduled message.
