@@ -27,6 +27,7 @@ func TestRCSAgentsList_Success(t *testing.T) {
 					"status": "approved",
 					"useCase": "OTP",
 					"sendable": true,
+					"stage": "live",
 					"createdAt": "2026-07-01T00:00:00Z"
 				},
 				{
@@ -67,6 +68,12 @@ func TestRCSAgentsList_Success(t *testing.T) {
 	}
 	if !resp.Agents[0].Sendable {
 		t.Error("expected Sendable to be true")
+	}
+	if resp.Agents[0].Stage != RcsCustomerStageLive {
+		t.Errorf("expected Stage to be 'live', got '%s'", resp.Agents[0].Stage)
+	}
+	if resp.Agents[1].Stage != "" {
+		t.Errorf("expected Stage to be empty, got '%s'", resp.Agents[1].Stage)
 	}
 	if resp.Agents[1].UseCase != nil {
 		t.Errorf("expected UseCase to be nil, got '%s'", *resp.Agents[1].UseCase)

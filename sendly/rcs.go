@@ -2,20 +2,34 @@ package sendly
 
 import "context"
 
-// RCSService is the RCS channel: agent discovery and recipient capability
-// pre-flight. Send RCS messages with MessagesService.SendRcs.
+// RCSService is the RCS channel: agent registration, agent discovery and
+// recipient capability pre-flight. Send RCS messages with
+// MessagesService.SendRcs.
 //
 // RCS messages come from a verified, branded agent rather than a bare
-// phone number. Agents are registered per brand by Sendly support —
-// contact support to set one up. RCS availability is rolling out
-// gradually; while it's off for an account, these endpoints return 404.
+// phone number. Registration is self-serve, from the dashboard or this
+// API: draft a brand (Brands) and an agent (Agents), invite test devices,
+// submit for review, and once testing is done request launch. Sendly
+// reviews each submission first, then the carrier network does. Logo,
+// hero and call-to-action media must be public https URLs; uploading
+// assets is dashboard-only. RCS availability is rolling out gradually;
+// while it's off for an account, these endpoints return 404
+// (Code RcsErrorCodeNotEnabled on the registration endpoints).
 type RCSService struct {
 	client *Client
-	// Agents lists the workspace's RCS agents.
+	// Agents lists, drafts, edits, submits and launches the workspace's RCS agents.
 	Agents *RCSAgentsService
+	// Registration reads the workspace's registration at a glance.
+	Registration *RCSRegistrationService
+	// Dossier prefills a brand draft from what Sendly already knows.
+	Dossier *RCSDossierService
+	// Brands drafts and edits the business identity behind an agent.
+	Brands *RCSBrandsService
 }
 
-// RCSAgentsService lists the workspace's RCS agents.
+// RCSAgentsService lists the workspace's RCS agents and runs an agent
+// through registration: draft, edit, invite test devices, submit for
+// review and request launch.
 type RCSAgentsService struct {
 	client *Client
 }
@@ -34,6 +48,8 @@ type RcsAgent struct {
 	// Sendable is true when the agent is fully provisioned and its status
 	// allows sending.
 	Sendable bool `json:"sendable"`
+	// Stage is where the agent's registration stands, derived with its brand.
+	Stage RcsCustomerStage `json:"stage,omitempty"`
 	// CreatedAt is the ISO 8601 timestamp when the agent was registered.
 	CreatedAt string `json:"createdAt"`
 }
@@ -56,8 +72,8 @@ type RcsCapability struct {
 }
 
 // List returns the workspace's RCS agents, newest first, with lifecycle
-// status and sendability. An empty list means no agent is registered yet —
-// contact support to set one up for your brand.
+// status, registration stage and sendability. An empty list means no agent
+// is registered yet — draft one with Create, or in the dashboard.
 func (s *RCSAgentsService) List(ctx context.Context) (*RcsAgentListResponse, error) {
 	var resp RcsAgentListResponse
 	if err := s.client.request(ctx, "GET", "/rcs/agents", nil, &resp); err != nil {

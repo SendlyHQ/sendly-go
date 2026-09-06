@@ -1,5 +1,7 @@
 package sendly
 
+import "encoding/json"
+
 // Message represents an SMS message.
 type Message struct {
 	// ID is the unique message identifier.
@@ -444,6 +446,13 @@ type ListMessagesResponse struct {
 	Count int `json:"count"`
 }
 
+// APIFieldError points at one invalid field in a request. Path is the
+// JSON path of the field, such as "brand.ein" or "devices.0.phoneNumber".
+type APIFieldError struct {
+	Path    string `json:"path"`
+	Message string `json:"message"`
+}
+
 // APIError represents an error from the API.
 type APIError struct {
 	// Code is the error code.
@@ -452,6 +461,42 @@ type APIError struct {
 	Message string `json:"message"`
 	// Details contains additional error details.
 	Details map[string]interface{} `json:"details,omitempty"`
+	// Errors lists the invalid fields on a validation failure, when the API
+	// reports them.
+	Errors []APIFieldError `json:"errors,omitempty"`
+}
+
+// UnmarshalJSON reads the error code from either the "code" or the
+// "error" key, since the API sends the latter, and keeps a per-field
+// "errors" list when the API reports one.
+func (e *APIError) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Code    string                 `json:"code"`
+		Error   json.RawMessage        `json:"error"`
+		Message string                 `json:"message"`
+		Details map[string]interface{} `json:"details"`
+		Errors  json.RawMessage        `json:"errors"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	e.Code = raw.Code
+	e.Message = raw.Message
+	e.Details = raw.Details
+	e.Errors = nil
+	if e.Code == "" && len(raw.Error) > 0 {
+		var code string
+		if json.Unmarshal(raw.Error, &code) == nil {
+			e.Code = code
+		}
+	}
+	if len(raw.Errors) > 0 {
+		var fields []APIFieldError
+		if json.Unmarshal(raw.Errors, &fields) == nil {
+			e.Errors = fields
+		}
+	}
+	return nil
 }
 
 // ScheduledMessageStatus represents the status of a scheduled message.

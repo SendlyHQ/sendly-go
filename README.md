@@ -388,7 +388,10 @@ updated, err := client.WhatsApp.Senders.UpdateProfile(ctx, "+15559876543", &send
 RCS is the branded, rich upgrade to SMS: your verified agent name and logo
 instead of a bare number, plus tappable suggestion chips and rich cards, on
 Android and iOS 18+ handsets. Messages send through an RCS agent registered
-for your brand — contact support to set one up. RCS requires a live API key.
+for your brand. Registration is self-serve, from the dashboard or this SDK
+(see [Registering an agent](#registering-an-agent)): Sendly reviews each
+submission first, then the carrier network does. Sending RCS requires a live
+API key.
 
 Text sends fall back to plain SMS automatically when the recipient's device or
 network doesn't support RCS, so one call covers your whole list. The fallback
@@ -457,6 +460,124 @@ _, err = client.Messages.SendRcs(ctx, &sendly.SendRcsMessageRequest{
     FallbackToSms: &rcsOnly,
 })
 ```
+
+### Registering an agent
+
+Register from the dashboard or right here. Draft a brand (the business behind
+the agent) and an agent (what recipients see), invite a few test devices, then
+submit: Sendly reviews the submission, sends it on to the carrier network for
+verification, and the agent enters testing. Once you have messaged an invited
+device, fill in the campaign and request launch; after the launch review the
+agent goes live. Follow progress with `client.RCS.Registration.Get`, and read
+`ReviewNote` when changes are requested.
+
+Two things to know: registration is US-only for now (the brand address must be
+in the US), and logo, hero and call-to-action media must be public `https://`
+URLs. Uploading assets is dashboard-only, so host the files yourself or upload
+them in the dashboard and use the URLs it gives you. Reads need the `rcs:read`
+scope and writes `rcs:write`; every registration call answers
+`404 rcs_not_enabled` until RCS is switched on for the account.
+
+```go
+// 1. Start from what Sendly already knows about the business.
+dossier, err := client.RCS.Dossier.Get(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+input := dossier.Brand
+input.DisplayName = "Acme"
+input.LegalEntityType = "LIMITED_LIABILITY_COMPANY"
+if input.Address == nil {
+    input.Address = &sendly.RcsBrandAddress{}
+}
+input.Address.CountryCode = "US"
+
+brand, err := client.RCS.Brands.Create(ctx, &input)
+if err != nil {
+    log.Fatal(err)
+}
+
+// 2. Draft the agent recipients will see. Media must be public https URLs.
+agent, err := client.RCS.Agents.Create(ctx, &sendly.CreateRcsAgentRequest{
+    BrandID:     brand.Brand.ID,
+    DisplayName: "Acme Support",
+    UseCase:     "MULTI_USE",
+    Basics: &sendly.RcsAgentBasics{
+        Description:           "Order updates and support from Acme.",
+        LogoURL:               "https://example.com/rcs/logo.png",
+        HeroURL:               "https://example.com/rcs/hero.png",
+        BrandColor:            "#FF5500",
+        PrivacyPolicyURL:      "https://example.com/privacy",
+        TermsAndConditionsURL: "https://example.com/terms",
+        PhoneNumber:           &sendly.RcsAgentPhoneContact{Number: "+15551234567", Label: "Support"},
+        Website:               &sendly.RcsAgentWebsiteContact{URL: "https://example.com", Label: "Acme"},
+    },
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+// 3. Invite test devices (the list is authoritative) and submit for review.
+_, err = client.RCS.Agents.SetTestDevices(ctx, agent.Agent.ID, []sendly.RcsTestDeviceInput{
+    {PhoneNumber: "+15557654321", Label: "Ada's phone"},
+})
+if err != nil {
+    log.Fatal(err)
+}
+submitted, err := client.RCS.Agents.Submit(ctx, agent.Agent.ID)
+if err != nil {
+    if validationErr, ok := err.(*sendly.ValidationError); ok {
+        for _, fieldErr := range validationErr.Errors {
+            fmt.Println(fieldErr.Path, fieldErr.Message) // e.g. "brand.ein Enter a 9-digit EIN"
+        }
+    }
+    log.Fatal(err)
+}
+fmt.Println(submitted.Stage) // "in_review"
+
+// 4. Follow progress. Once the stage is "testing", message an invited device,
+//    fill in the campaign, and request launch.
+reg, err := client.RCS.Registration.Get(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+if reg.Stage == sendly.RcsCustomerStageTesting {
+    _, err = client.RCS.Agents.Update(ctx, reg.Agent.ID, &sendly.UpdateRcsAgentRequest{
+        Campaign: &sendly.RcsCampaign{
+            CompanyOverview: "Family bakery in Austin since 1998.",
+            AgentOverview:   "Order confirmations, pickup reminders and support replies.",
+            Interactions: []sendly.RcsInteraction{
+                {InteractionType: "TRANSACTIONAL_UPDATES", Description: "Order and pickup updates"},
+            },
+            MessageExamples: []string{
+                "Your order #4821 is confirmed.",
+                "Your order is ready for pickup.",
+                "Reply STOP to opt out.",
+            },
+            ConsentSettings: &sendly.RcsConsentSettings{
+                OptInMethods:   []sendly.RcsOptInMethod{{MethodType: "WEBSITE", Description: "Checkbox at checkout"}},
+                OptInMessage:   "Acme: you're in. Reply STOP to opt out.",
+                HelpResponse:   "Acme support: hello@example.com",
+                OptOutResponse: "You've been opted out.",
+            },
+        },
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    launch, err := client.RCS.Agents.RequestLaunch(ctx, reg.Agent.ID, &sendly.RcsLaunchRequest{
+        TestURL: "https://example.com/rcs-test-notes",
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(launch.Stage) // "launch_review"
+}
+```
+
+Brands and agents lock while under review (`409 rcs_field_locked`) and unlock
+again if Sendly requests changes. Pass `sendly.WithIdempotencyKey` on any
+write to make it safe to retry across process restarts.
 
 ## Webhooks
 
