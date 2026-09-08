@@ -18,6 +18,13 @@ import (
 type WebhookEventType string
 
 const (
+	// Deprecated: the API has never emitted this and rejects it when you
+	// subscribe. It will be removed in the next major version.
+	WebhookEventMessageQueued      WebhookEventType = "message.queued"
+	// Deprecated: the API has never emitted this and rejects it when you
+	// subscribe. It will be removed in the next major version.
+	WebhookEventMessageUndelivered WebhookEventType = "message.undelivered"
+
 	WebhookEventMessageSent                WebhookEventType = "message.sent"
 	WebhookEventMessageDelivered           WebhookEventType = "message.delivered"
 	WebhookEventMessageRead                WebhookEventType = "message.read"
@@ -164,12 +171,38 @@ type rawDataWrapper struct {
 
 // WebhookEvent represents a webhook event from Sendly
 type WebhookEvent struct {
-	ID         string             `json:"id"`
-	Type       WebhookEventType   `json:"type"`
+	ID   string           `json:"id"`
+	Type WebhookEventType `json:"type"`
+	// Data is the event's data.object decoded as a message. It is only
+	// meaningful for message.* events. Lifecycle events — rcs_*, whatsapp_*,
+	// call.*, brand.*, campaign.*, assignment.*, number.* and port* — carry a
+	// completely different object, and decoding those into this struct leaves
+	// it zeroed. Use RawObject or DecodeObject for them.
 	Data       WebhookMessageData `json:"-"`
 	Created    interface{}        `json:"created"`
 	APIVersion string             `json:"api_version"`
 	Livemode   bool               `json:"livemode"`
+	// RawObject is the event's data.object exactly as it arrived. Every event
+	// type has one, so this is always the complete payload even when Data is not
+	// the right shape for it.
+	RawObject json.RawMessage `json:"-"`
+}
+
+// DecodeObject unmarshals the event's data.object into v.
+//
+// Use it for lifecycle events, whose payload is not message-shaped:
+//
+//	var agent struct {
+//		AgentID string `json:"agent_id"`
+//		Name    string `json:"name"`
+//		Stage   string `json:"stage"`
+//	}
+//	if err := event.DecodeObject(&agent); err != nil { /* ... */ }
+func (e *WebhookEvent) DecodeObject(v interface{}) error {
+	if len(e.RawObject) == 0 {
+		return errors.New("sendly: event carries no data.object")
+	}
+	return json.Unmarshal(e.RawObject, v)
 }
 
 // ErrInvalidSignature is returned when webhook signature verification fails
@@ -224,12 +257,15 @@ func (w Webhooks) ParseEvent(payload, signature, secret, timestamp string) (*Web
 	}
 
 	var msgData WebhookMessageData
+	var rawObject json.RawMessage
 	var wrapper rawDataWrapper
 	if err := json.Unmarshal(raw.Data, &wrapper); err == nil && wrapper.Object != nil {
+		rawObject = wrapper.Object
 		if err := json.Unmarshal(wrapper.Object, &msgData); err != nil {
 			return nil, fmt.Errorf("failed to parse webhook data.object: %w", err)
 		}
 	} else {
+		rawObject = raw.Data
 		if err := json.Unmarshal(raw.Data, &msgData); err != nil {
 			return nil, fmt.Errorf("failed to parse webhook data: %w", err)
 		}
@@ -253,6 +289,7 @@ func (w Webhooks) ParseEvent(payload, signature, secret, timestamp string) (*Web
 		ID:         raw.ID,
 		Type:       raw.Type,
 		Data:       msgData,
+		RawObject:  rawObject,
 		Created:    created,
 		APIVersion: raw.APIVersion,
 		Livemode:   raw.Livemode,
