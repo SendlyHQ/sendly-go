@@ -1,4 +1,4 @@
-module github.com/SendlyHQ/sendly-go/v3
+module github.com/SendlyHQ/sendly-go/v4
 
 go 1.21
 

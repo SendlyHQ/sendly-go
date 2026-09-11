@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 )
 
 // TemplatesService provides template management operations.
@@ -119,7 +120,7 @@ func (s *TemplatesService) Presets(ctx context.Context) (*TemplateListResponse, 
 // Get retrieves a template by ID.
 func (s *TemplatesService) Get(ctx context.Context, id string) (*Template, error) {
 	var resp Template
-	err := s.client.request(ctx, "GET", fmt.Sprintf("/templates/%s", id), nil, &resp)
+	err := s.client.request(ctx, "GET", fmt.Sprintf("/templates/%s", url.PathEscape(id)), nil, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +140,7 @@ func (s *TemplatesService) Create(ctx context.Context, req *CreateTemplateReques
 // Update updates a template.
 func (s *TemplatesService) Update(ctx context.Context, id string, req *UpdateTemplateRequest) (*Template, error) {
 	var resp Template
-	err := s.client.request(ctx, "PATCH", fmt.Sprintf("/templates/%s", id), req, &resp)
+	err := s.client.request(ctx, "PATCH", fmt.Sprintf("/templates/%s", url.PathEscape(id)), req, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +150,7 @@ func (s *TemplatesService) Update(ctx context.Context, id string, req *UpdateTem
 // Publish publishes a draft template.
 func (s *TemplatesService) Publish(ctx context.Context, id string) (*Template, error) {
 	var resp Template
-	err := s.client.request(ctx, "POST", fmt.Sprintf("/templates/%s/publish", id), nil, &resp)
+	err := s.client.request(ctx, "POST", fmt.Sprintf("/templates/%s/publish", url.PathEscape(id)), nil, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +165,7 @@ func (s *TemplatesService) Preview(ctx context.Context, id string, variables map
 	}
 
 	var resp TemplatePreview
-	err := s.client.request(ctx, "POST", fmt.Sprintf("/templates/%s/preview", id), body, &resp)
+	err := s.client.request(ctx, "POST", fmt.Sprintf("/templates/%s/preview", url.PathEscape(id)), body, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +174,7 @@ func (s *TemplatesService) Preview(ctx context.Context, id string, variables map
 
 // Delete deletes a template.
 func (s *TemplatesService) Delete(ctx context.Context, id string) error {
-	return s.client.request(ctx, "DELETE", fmt.Sprintf("/templates/%s", id), nil, nil)
+	return s.client.request(ctx, "DELETE", fmt.Sprintf("/templates/%s", url.PathEscape(id)), nil, nil)
 }
 
 // CloneTemplateRequest represents the parameters for cloning a template.
@@ -193,7 +194,7 @@ func (s *TemplatesService) Clone(ctx context.Context, id string, req *CloneTempl
 	}
 
 	var resp Template
-	err := s.client.request(ctx, "POST", fmt.Sprintf("/templates/%s/clone", id), body, &resp)
+	err := s.client.request(ctx, "POST", fmt.Sprintf("/templates/%s/clone", url.PathEscape(id)), body, &resp)
 	if err != nil {
 		return nil, err
 	}

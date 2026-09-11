@@ -94,3 +94,77 @@ func TestParseEventAcceptsUnknownType(t *testing.T) {
 		t.Fatalf("type = %q", event.Type)
 	}
 }
+
+// A lifecycle payload that reuses a message field name at an incompatible type
+// used to fail the whole parse, so RawObject never reached the caller — which
+// defeated the point of adding it. Verified against the published v3.40.0
+// before this fix: both returned "cannot unmarshal ... WebhookMessageData".
+func TestLifecycleTypeCollisionStillReachable(t *testing.T) {
+	cases := map[string]string{
+		"status as object": `{"id":"evt_1","type":"call.completed","api_version":"2024-01","created":1,"livemode":true,"data":{"object":{"id":"call_1","status":{"code":200},"hangup_class":"normal"}}}`,
+		"id as number":     `{"id":"evt_2","type":"number.activated","api_version":"2024-01","created":1,"livemode":true,"data":{"object":{"id":12345,"phone":"+15555550100"}}}`,
+	}
+	for name, payload := range cases {
+		sig, ts := signed(t, payload)
+		event, err := Webhooks{}.ParseEvent(payload, sig, testSecret, ts)
+		if err != nil {
+			t.Fatalf("%s: ParseEvent should not fail on a lifecycle payload: %v", name, err)
+		}
+		if len(event.RawObject) == 0 {
+			t.Fatalf("%s: RawObject must carry the payload", name)
+		}
+	}
+}
+
+// The message view is decoded only for events that carry one. opt_in/opt_out
+// share the message.* prefix but carry an opt-out record, so decoding them as a
+// message would invent to/from/segments the server never sent.
+func TestOptOutIsNotDecodedAsAMessage(t *testing.T) {
+	payload := `{"id":"evt_3","type":"message.opt_out","api_version":"2024-01","created":1,"livemode":true,"data":{"object":{"phone_number":"+15555550100","keyword":"STOP","from_number":"+15555550199","timestamp":"2026-01-01T00:00:00Z"}}}`
+	sig, ts := signed(t, payload)
+	event, err := Webhooks{}.ParseEvent(payload, sig, testSecret, ts)
+	if err != nil {
+		t.Fatalf("ParseEvent: %v", err)
+	}
+	if event.Data.Segments != 0 || event.Data.To != "" {
+		t.Fatalf("invented message fields on an opt-out: %+v", event.Data)
+	}
+	var obj map[string]any
+	if err := event.DecodeObject(&obj); err != nil || obj["keyword"] != "STOP" {
+		t.Fatalf("opt-out payload unreachable: %v %v", err, obj)
+	}
+}
+
+// Regression: the message_id fallback once sat OUTSIDE the message-event gate,
+// so a legacy flat-payload contact.auto_flagged had its ID filled from
+// message_id — a different row entirely. That is the wrong-record bug this
+// release exists to remove, and it must not come back through the legacy path.
+func TestLegacyFlatPayloadDoesNotBorrowMessageID(t *testing.T) {
+	payload := `{"id":"evt_9","type":"contact.auto_flagged","api_version":"2024-01","created":1,"livemode":true,"data":{"id":"contact_ABC","message_id":"msg_REAL","source":"send_failure"}}`
+	sig, ts := signed(t, payload)
+	event, err := Webhooks{}.ParseEvent(payload, sig, testSecret, ts)
+	if err != nil {
+		t.Fatalf("ParseEvent: %v", err)
+	}
+	if event.Data.ID != "" {
+		t.Fatalf("a non-message event must not carry a message id, got %q", event.Data.ID)
+	}
+	var obj map[string]any
+	if err := event.DecodeObject(&obj); err != nil {
+		t.Fatalf("DecodeObject: %v", err)
+	}
+	if obj["id"] != "contact_ABC" || obj["message_id"] != "msg_REAL" {
+		t.Fatalf("payload not reachable verbatim: %v", obj)
+	}
+}
+
+// A message event whose object genuinely does not decode must still surface the
+// error rather than returning a half-populated struct.
+func TestMalformedMessageEventStillErrors(t *testing.T) {
+	payload := `{"id":"evt_10","type":"message.received","api_version":"2024-01","created":1,"livemode":true,"data":{"object":{"id":999,"to":"+15555550100","segments":3}}}`
+	sig, ts := signed(t, payload)
+	w := Webhooks{}
+	if _, err := w.ParseEvent(payload, sig, testSecret, ts); err == nil {
+		t.Fatal("a message event with a numeric id should error, not decode partially")
+	}
+}

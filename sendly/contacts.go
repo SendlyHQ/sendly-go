@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 )
 
@@ -17,20 +18,20 @@ type ContactListsService struct {
 }
 
 type Contact struct {
-	ID                 string                 `json:"id"`
-	PhoneNumber        string                 `json:"phone_number"`
-	Name               *string                `json:"name,omitempty"`
-	Email              *string                `json:"email,omitempty"`
-	Metadata           map[string]interface{} `json:"metadata,omitempty"`
-	OptedOut           *bool                  `json:"opted_out,omitempty"`
-	LineType           *string                `json:"line_type,omitempty"`
-	CarrierName        *string                `json:"carrier_name,omitempty"`
-	LineTypeCheckedAt  *string                `json:"line_type_checked_at,omitempty"`
-	InvalidReason      *string                `json:"invalid_reason,omitempty"`
-	InvalidatedAt      *string                `json:"invalidated_at,omitempty"`
-	UserMarkedValidAt  *string                `json:"user_marked_valid_at,omitempty"`
-	CreatedAt          string                 `json:"created_at"`
-	UpdatedAt          string                 `json:"updated_at"`
+	ID                string                 `json:"id"`
+	PhoneNumber       string                 `json:"phone_number"`
+	Name              *string                `json:"name,omitempty"`
+	Email             *string                `json:"email,omitempty"`
+	Metadata          map[string]interface{} `json:"metadata,omitempty"`
+	OptedOut          *bool                  `json:"opted_out,omitempty"`
+	LineType          *string                `json:"line_type,omitempty"`
+	CarrierName       *string                `json:"carrier_name,omitempty"`
+	LineTypeCheckedAt *string                `json:"line_type_checked_at,omitempty"`
+	InvalidReason     *string                `json:"invalid_reason,omitempty"`
+	InvalidatedAt     *string                `json:"invalidated_at,omitempty"`
+	UserMarkedValidAt *string                `json:"user_marked_valid_at,omitempty"`
+	CreatedAt         string                 `json:"created_at"`
+	UpdatedAt         string                 `json:"updated_at"`
 }
 
 type CheckNumbersRequest struct {
@@ -170,7 +171,7 @@ func (s *ContactsService) List(ctx context.Context, req *ListContactsRequest) (*
 
 func (s *ContactsService) Get(ctx context.Context, id string) (*Contact, error) {
 	var resp Contact
-	err := s.client.request(ctx, "GET", fmt.Sprintf("/contacts/%s", id), nil, &resp)
+	err := s.client.request(ctx, "GET", fmt.Sprintf("/contacts/%s", url.PathEscape(id)), nil, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +189,7 @@ func (s *ContactsService) Create(ctx context.Context, req *CreateContactRequest)
 
 func (s *ContactsService) Update(ctx context.Context, id string, req *UpdateContactRequest) (*Contact, error) {
 	var resp Contact
-	err := s.client.request(ctx, "PATCH", fmt.Sprintf("/contacts/%s", id), req, &resp)
+	err := s.client.request(ctx, "PATCH", fmt.Sprintf("/contacts/%s", url.PathEscape(id)), req, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +197,7 @@ func (s *ContactsService) Update(ctx context.Context, id string, req *UpdateCont
 }
 
 func (s *ContactsService) Delete(ctx context.Context, id string) error {
-	return s.client.request(ctx, "DELETE", fmt.Sprintf("/contacts/%s", id), nil, nil)
+	return s.client.request(ctx, "DELETE", fmt.Sprintf("/contacts/%s", url.PathEscape(id)), nil, nil)
 }
 
 // MarkValid clears the invalid flag on a contact so future campaigns include it again.
@@ -204,7 +205,7 @@ func (s *ContactsService) Delete(ctx context.Context, id string) error {
 // error (landline, invalid number) or when a carrier lookup reports they can't receive SMS.
 func (s *ContactsService) MarkValid(ctx context.Context, id string) (*Contact, error) {
 	var resp Contact
-	err := s.client.request(ctx, "POST", fmt.Sprintf("/contacts/%s/mark-valid", id), nil, &resp)
+	err := s.client.request(ctx, "POST", fmt.Sprintf("/contacts/%s/mark-valid", url.PathEscape(id)), nil, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +285,7 @@ func (s *ContactListsService) List(ctx context.Context) (*ContactListsResponse, 
 
 func (s *ContactListsService) Get(ctx context.Context, id string) (*ContactList, error) {
 	var resp ContactList
-	err := s.client.request(ctx, "GET", fmt.Sprintf("/contact-lists/%s", id), nil, &resp)
+	err := s.client.request(ctx, "GET", fmt.Sprintf("/contact-lists/%s", url.PathEscape(id)), nil, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +303,7 @@ func (s *ContactListsService) Create(ctx context.Context, req *CreateContactList
 
 func (s *ContactListsService) Update(ctx context.Context, id string, req *UpdateContactListRequest) (*ContactList, error) {
 	var resp ContactList
-	err := s.client.request(ctx, "PATCH", fmt.Sprintf("/contact-lists/%s", id), req, &resp)
+	err := s.client.request(ctx, "PATCH", fmt.Sprintf("/contact-lists/%s", url.PathEscape(id)), req, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -310,14 +311,14 @@ func (s *ContactListsService) Update(ctx context.Context, id string, req *Update
 }
 
 func (s *ContactListsService) Delete(ctx context.Context, id string) error {
-	return s.client.request(ctx, "DELETE", fmt.Sprintf("/contact-lists/%s", id), nil, nil)
+	return s.client.request(ctx, "DELETE", fmt.Sprintf("/contact-lists/%s", url.PathEscape(id)), nil, nil)
 }
 
 func (s *ContactListsService) AddContacts(ctx context.Context, listID string, contactIDs []string) error {
 	req := &AddContactsRequest{ContactIDs: contactIDs}
-	return s.client.request(ctx, "POST", fmt.Sprintf("/contact-lists/%s/contacts", listID), req, nil)
+	return s.client.request(ctx, "POST", fmt.Sprintf("/contact-lists/%s/contacts", url.PathEscape(listID)), req, nil)
 }
 
 func (s *ContactListsService) RemoveContact(ctx context.Context, listID, contactID string) error {
-	return s.client.request(ctx, "DELETE", fmt.Sprintf("/contact-lists/%s/contacts/%s", listID, contactID), nil, nil)
+	return s.client.request(ctx, "DELETE", fmt.Sprintf("/contact-lists/%s/contacts/%s", url.PathEscape(listID), url.PathEscape(contactID)), nil, nil)
 }

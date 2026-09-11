@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pkg.go.dev/github.com/SendlyHQ/sendly-go/v3"><img src="https://pkg.go.dev/badge/github.com/SendlyHQ/sendly-go/v3.svg" alt="Go Reference" /></a>
+  <a href="https://pkg.go.dev/github.com/SendlyHQ/sendly-go/v4"><img src="https://pkg.go.dev/badge/github.com/SendlyHQ/sendly-go/v4.svg" alt="Go Reference" /></a>
   <a href="https://github.com/SendlyHQ/sendly-go/blob/main/LICENSE"><img src="https://img.shields.io/github/license/SendlyHQ/sendly-go?style=flat-square" alt="license" /></a>
 </p>
 
@@ -14,7 +14,7 @@ Official Go SDK for the Sendly SMS API.
 ## Installation
 
 ```bash
-go get github.com/SendlyHQ/sendly-go/v3
+go get github.com/SendlyHQ/sendly-go/v4
 ```
 
 ## Quick Start
@@ -27,7 +27,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/SendlyHQ/sendly-go/v3/sendly"
+    "github.com/SendlyHQ/sendly-go/v4/sendly"
 )
 
 func main() {
@@ -77,7 +77,7 @@ Before sending live SMS messages, you need:
 ```go
 import (
     "time"
-    "github.com/SendlyHQ/sendly-go/v3/sendly"
+    "github.com/SendlyHQ/sendly-go/v4/sendly"
 )
 
 // Create client with options
@@ -583,7 +583,7 @@ write to make it safe to retry across process restarts.
 
 ```go
 // Create a webhook endpoint
-webhook, err := client.Webhooks.Create(ctx, &sendly.CreateWebhookRequest{
+webhook, err := client.Webhooks.Create(ctx, sendly.CreateWebhookRequest{
     URL:    "https://example.com/webhooks/sendly",
     Events: []string{"message.delivered", "message.failed"},
 })
@@ -597,8 +597,9 @@ webhooks, err := client.Webhooks.List(ctx)
 wh, err := client.Webhooks.Get(ctx, "whk_xxx")
 
 // Update a webhook
-client.Webhooks.Update(ctx, "whk_xxx", &sendly.UpdateWebhookRequest{
-    URL:    "https://new-endpoint.example.com/webhook",
+newURL := "https://new-endpoint.example.com/webhook"
+client.Webhooks.Update(ctx, "whk_xxx", sendly.UpdateWebhookRequest{
+    URL:    &newURL,
     Events: []string{"message.delivered", "message.failed", "message.sent"},
 })
 
@@ -611,6 +612,102 @@ rotation, err := client.Webhooks.RotateSecret(ctx, "whk_xxx")
 // Delete a webhook
 err = client.Webhooks.Delete(ctx, "whk_xxx")
 ```
+
+### Receiving events
+
+`sendly.Webhooks{}.ParseEvent` verifies the signature and returns the event. It
+takes the raw request body plus the `X-Sendly-Signature` and `X-Sendly-Timestamp`
+headers Sendly sends with every delivery.
+
+```go
+func handleWebhook(w http.ResponseWriter, r *http.Request) {
+    body, err := io.ReadAll(r.Body)
+    if err != nil {
+        http.Error(w, "bad request", http.StatusBadRequest)
+        return
+    }
+
+    event, err := sendly.Webhooks{}.ParseEvent(
+        string(body),
+        r.Header.Get("X-Sendly-Signature"),
+        os.Getenv("SENDLY_WEBHOOK_SECRET"),
+        r.Header.Get("X-Sendly-Timestamp"),
+    )
+    if err != nil {
+        http.Error(w, "invalid signature", http.StatusBadRequest)
+        return
+    }
+
+    switch event.Type {
+    case sendly.WebhookEventMessageDelivered:
+        fmt.Printf("%s delivered to %s\n", event.Data.ID, event.Data.To)
+    case sendly.WebhookEventMessageFailed:
+        fmt.Printf("%s failed: %s\n", event.Data.ID, event.Data.Error)
+    }
+
+    w.WriteHeader(http.StatusOK)
+}
+```
+
+### Lifecycle events
+
+`event.Data` is the event's `data.object` decoded as a message, and only
+`message.*` events carry one. Lifecycle events — `rcs_*`, `whatsapp_*`, `call.*`,
+`brand.*`, `campaign.*`, `assignment.*`, `number.*`, `port*`, `contact.*`,
+`conversation.*`, `draft.*` — carry a different object entirely, so `event.Data`
+stays zeroed for them and no error is raised. Read those payloads with
+`event.DecodeObject(&v)`, or straight off `event.RawObject`, which holds the
+`data.object` exactly as it arrived and is populated for every event type,
+including `message.*` and event types newer than your SDK build.
+
+```go
+switch event.Type {
+case sendly.WebhookEventRcsAgentLive, sendly.WebhookEventRcsAgentRejected:
+    var agent struct {
+        AgentID string `json:"agent_id"`
+        Name    string `json:"name"`
+        Stage   string `json:"stage"`
+        Reason  string `json:"reason,omitempty"`
+    }
+    if err := event.DecodeObject(&agent); err != nil {
+        http.Error(w, "bad payload", http.StatusBadRequest)
+        return
+    }
+    fmt.Printf("agent %s (%s) is %s\n", agent.AgentID, agent.Name, agent.Stage)
+
+case sendly.WebhookEventContactAutoFlagged:
+    var flagged struct {
+        // ID is the CONTACT id, not a message id. The message that
+        // triggered the flag is MessageID, and it can be null.
+        ID            string  `json:"id"`
+        PhoneNumber   string  `json:"phone_number"`
+        InvalidReason string  `json:"invalid_reason"`
+        Source        string  `json:"source"`
+        MessageID     *string `json:"message_id"`
+    }
+    if err := event.DecodeObject(&flagged); err != nil {
+        http.Error(w, "bad payload", http.StatusBadRequest)
+        return
+    }
+    fmt.Printf("contact %s flagged: %s\n", flagged.ID, flagged.InvalidReason)
+
+default:
+    // Anything you have no typed handler for, including event types added
+    // after this SDK build, is still readable in full.
+    var object map[string]interface{}
+    if err := event.DecodeObject(&object); err == nil {
+        log.Printf("unhandled %s: %v", event.Type, object)
+    }
+}
+```
+
+`message.opt_in` and `message.opt_out` share the `message.` prefix but carry an
+opt-out record (`phone_number`, `keyword`, `from_number`, `timestamp`), not a
+message, so they are handled the same way — through `DecodeObject`.
+
+`WebhookEventMessageQueued` and `WebhookEventMessageUndelivered` are deprecated.
+The API has never emitted them and rejects them with a 400 when you subscribe;
+drop them from your `Events` list.
 
 ## Numbers
 

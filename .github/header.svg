@@ -41,7 +41,7 @@
 
   <!-- Code Content -->
   <text x="380" y="90" fill="#c084fc" font-family="ui-monospace, monospace" font-size="13">import</text>
-  <text x="435" y="90" fill="#fbbf24" font-family="ui-monospace, monospace" font-size="13">"github.com/SendlyHQ/sendly-go/v3"</text>
+  <text x="435" y="90" fill="#fbbf24" font-family="ui-monospace, monospace" font-size="13">"github.com/SendlyHQ/sendly-go/v4"</text>
 
   <text x="380" y="125" fill="#e4e4e7" font-family="ui-monospace, monospace" font-size="13">client :=</text>
   <text x="455" y="125" fill="#e4e4e7" font-family="ui-monospace, monospace" font-size="13">sendly.</text>

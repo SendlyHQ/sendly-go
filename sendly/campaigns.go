@@ -3,6 +3,7 @@ package sendly
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strconv"
 )
 
@@ -125,7 +126,7 @@ func (s *CampaignsService) List(ctx context.Context, req *ListCampaignsRequest) 
 
 func (s *CampaignsService) Get(ctx context.Context, id string) (*Campaign, error) {
 	var resp Campaign
-	err := s.client.request(ctx, "GET", fmt.Sprintf("/campaigns/%s", id), nil, &resp)
+	err := s.client.request(ctx, "GET", fmt.Sprintf("/campaigns/%s", url.PathEscape(id)), nil, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +144,7 @@ func (s *CampaignsService) Create(ctx context.Context, req *CreateCampaignReques
 
 func (s *CampaignsService) Update(ctx context.Context, id string, req *UpdateCampaignRequest) (*Campaign, error) {
 	var resp Campaign
-	err := s.client.request(ctx, "PATCH", fmt.Sprintf("/campaigns/%s", id), req, &resp)
+	err := s.client.request(ctx, "PATCH", fmt.Sprintf("/campaigns/%s", url.PathEscape(id)), req, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -151,12 +152,12 @@ func (s *CampaignsService) Update(ctx context.Context, id string, req *UpdateCam
 }
 
 func (s *CampaignsService) Delete(ctx context.Context, id string) error {
-	return s.client.request(ctx, "DELETE", fmt.Sprintf("/campaigns/%s", id), nil, nil)
+	return s.client.request(ctx, "DELETE", fmt.Sprintf("/campaigns/%s", url.PathEscape(id)), nil, nil)
 }
 
 func (s *CampaignsService) Preview(ctx context.Context, id string) (*CampaignPreview, error) {
 	var resp CampaignPreview
-	err := s.client.request(ctx, "GET", fmt.Sprintf("/campaigns/%s/preview", id), nil, &resp)
+	err := s.client.request(ctx, "GET", fmt.Sprintf("/campaigns/%s/preview", url.PathEscape(id)), nil, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +166,7 @@ func (s *CampaignsService) Preview(ctx context.Context, id string) (*CampaignPre
 
 func (s *CampaignsService) Send(ctx context.Context, id string) (*Campaign, error) {
 	var resp Campaign
-	err := s.client.request(ctx, "POST", fmt.Sprintf("/campaigns/%s/send", id), map[string]interface{}{}, &resp)
+	err := s.client.request(ctx, "POST", fmt.Sprintf("/campaigns/%s/send", url.PathEscape(id)), map[string]interface{}{}, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +175,7 @@ func (s *CampaignsService) Send(ctx context.Context, id string) (*Campaign, erro
 
 func (s *CampaignsService) Schedule(ctx context.Context, id string, req *ScheduleCampaignRequest) (*Campaign, error) {
 	var resp Campaign
-	err := s.client.request(ctx, "POST", fmt.Sprintf("/campaigns/%s/schedule", id), req, &resp)
+	err := s.client.request(ctx, "POST", fmt.Sprintf("/campaigns/%s/schedule", url.PathEscape(id)), req, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +184,7 @@ func (s *CampaignsService) Schedule(ctx context.Context, id string, req *Schedul
 
 func (s *CampaignsService) Cancel(ctx context.Context, id string) (*Campaign, error) {
 	var resp Campaign
-	err := s.client.request(ctx, "POST", fmt.Sprintf("/campaigns/%s/cancel", id), map[string]interface{}{}, &resp)
+	err := s.client.request(ctx, "POST", fmt.Sprintf("/campaigns/%s/cancel", url.PathEscape(id)), map[string]interface{}{}, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +193,7 @@ func (s *CampaignsService) Cancel(ctx context.Context, id string) (*Campaign, er
 
 func (s *CampaignsService) Clone(ctx context.Context, id string) (*Campaign, error) {
 	var resp Campaign
-	err := s.client.request(ctx, "POST", fmt.Sprintf("/campaigns/%s/clone", id), map[string]interface{}{}, &resp)
+	err := s.client.request(ctx, "POST", fmt.Sprintf("/campaigns/%s/clone", url.PathEscape(id)), map[string]interface{}{}, &resp)
 	if err != nil {
 		return nil, err
 	}

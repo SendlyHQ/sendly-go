@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/SendlyHQ/sendly-go/v3/sendly"
+	"github.com/SendlyHQ/sendly-go/v4/sendly"
 )
 
 func main() {

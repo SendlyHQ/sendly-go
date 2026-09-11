@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"path/filepath"
 )
 
@@ -87,5 +88,5 @@ func (s *MediaService) Delete(ctx context.Context, id string) error {
 		return &ValidationError{APIError: APIError{Message: "media ID is required"}}
 	}
 
-	return s.client.request(ctx, "DELETE", fmt.Sprintf("/media/%s", id), nil, nil)
+	return s.client.request(ctx, "DELETE", fmt.Sprintf("/media/%s", url.PathEscape(id)), nil, nil)
 }

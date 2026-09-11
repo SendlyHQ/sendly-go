@@ -20,7 +20,7 @@ type WebhookEventType string
 const (
 	// Deprecated: the API has never emitted this and rejects it when you
 	// subscribe. It will be removed in the next major version.
-	WebhookEventMessageQueued      WebhookEventType = "message.queued"
+	WebhookEventMessageQueued WebhookEventType = "message.queued"
 	// Deprecated: the API has never emitted this and rejects it when you
 	// subscribe. It will be removed in the next major version.
 	WebhookEventMessageUndelivered WebhookEventType = "message.undelivered"
@@ -110,22 +110,22 @@ const (
 
 // WebhookMessageData contains the data payload for message webhook events
 type WebhookMessageData struct {
-	ID             string               `json:"id"`
-	Status         WebhookMessageStatus `json:"status"`
-	To             string               `json:"to"`
-	From           string               `json:"from"`
-	Direction      string               `json:"direction,omitempty"`
-	OrganizationID *string              `json:"organization_id,omitempty"`
-	Text           string               `json:"text,omitempty"`
-	Error          string               `json:"error,omitempty"`
-	ErrorCode      string               `json:"error_code,omitempty"`
-	DeliveredAt    interface{}          `json:"delivered_at,omitempty"`
-	FailedAt       interface{}          `json:"failed_at,omitempty"`
-	CreatedAt      interface{}          `json:"created_at,omitempty"`
-	Segments       int                  `json:"segments"`
-	CreditsUsed    int                  `json:"credits_used"`
-	MessageFormat  string               `json:"message_format,omitempty"`
-	MediaUrls      []string             `json:"media_urls,omitempty"`
+	ID             string                 `json:"id"`
+	Status         WebhookMessageStatus   `json:"status"`
+	To             string                 `json:"to"`
+	From           string                 `json:"from"`
+	Direction      string                 `json:"direction,omitempty"`
+	OrganizationID *string                `json:"organization_id,omitempty"`
+	Text           string                 `json:"text,omitempty"`
+	Error          string                 `json:"error,omitempty"`
+	ErrorCode      string                 `json:"error_code,omitempty"`
+	DeliveredAt    interface{}            `json:"delivered_at,omitempty"`
+	FailedAt       interface{}            `json:"failed_at,omitempty"`
+	CreatedAt      interface{}            `json:"created_at,omitempty"`
+	Segments       int                    `json:"segments"`
+	CreditsUsed    int                    `json:"credits_used"`
+	MessageFormat  string                 `json:"message_format,omitempty"`
+	MediaUrls      []string               `json:"media_urls,omitempty"`
 	RetryCount     int                    `json:"retry_count,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 	BatchID        *string                `json:"batch_id,omitempty"`
@@ -205,6 +205,21 @@ func (e *WebhookEvent) DecodeObject(v interface{}) error {
 	return json.Unmarshal(e.RawObject, v)
 }
 
+// isMessageEvent reports whether an event's data.object is message-shaped.
+//
+// Only message.* events are, and not even all of those: message.opt_in and
+// message.opt_out share the prefix but carry an opt-out record
+// ({phone_number, keyword, from_number, timestamp}), so decoding them as a
+// message would invent to/from/segments values the server never sent. The
+// Python, Ruby and PHP SDKs draw the same line.
+func isMessageEvent(t WebhookEventType) bool {
+	s := string(t)
+	if s == string(WebhookEventMessageOptIn) || s == string(WebhookEventMessageOptOut) {
+		return false
+	}
+	return strings.HasPrefix(s, "message.")
+}
+
 // ErrInvalidSignature is returned when webhook signature verification fails
 var ErrInvalidSignature = errors.New("invalid webhook signature")
 
@@ -261,21 +276,39 @@ func (w Webhooks) ParseEvent(payload, signature, secret, timestamp string) (*Web
 	var wrapper rawDataWrapper
 	if err := json.Unmarshal(raw.Data, &wrapper); err == nil && wrapper.Object != nil {
 		rawObject = wrapper.Object
-		if err := json.Unmarshal(wrapper.Object, &msgData); err != nil {
-			return nil, fmt.Errorf("failed to parse webhook data.object: %w", err)
+		// Only decode the message view for events that actually carry one, and
+		// never fail the whole parse if it does not fit. A lifecycle payload
+		// that happens to reuse a message field name at a different type — a
+		// nested `status` object, a numeric `id` — used to make the entire
+		// event unreadable, RawObject included, which defeated the point of
+		// adding RawObject at all.
+		if isMessageEvent(raw.Type) {
+			// Strict for a real message: a message event whose object does not
+			// decode is a genuine problem and should surface, exactly as it did
+			// before. Only lifecycle events are exempt, and they are exempt by
+			// never being decoded at all rather than by ignoring the error.
+			if err := json.Unmarshal(wrapper.Object, &msgData); err != nil {
+				return nil, fmt.Errorf("failed to parse webhook data.object: %w", err)
+			}
 		}
 	} else {
 		rawObject = raw.Data
-		if err := json.Unmarshal(raw.Data, &msgData); err != nil {
-			return nil, fmt.Errorf("failed to parse webhook data: %w", err)
-		}
-		if msgData.ID == "" {
-			var legacy struct {
-				MessageID string `json:"message_id"`
+		if isMessageEvent(raw.Type) {
+			if err := json.Unmarshal(raw.Data, &msgData); err != nil {
+				return nil, fmt.Errorf("failed to parse webhook data: %w", err)
 			}
-			json.Unmarshal(raw.Data, &legacy)
-			if legacy.MessageID != "" {
-				msgData.ID = legacy.MessageID
+			// Inside the message gate. Outside it, this filled a NON-message
+			// event's ID from `message_id` — which on contact.auto_flagged is a
+			// different row entirely, reintroducing the wrong-record bug this
+			// release exists to fix.
+			if msgData.ID == "" {
+				var legacy struct {
+					MessageID string `json:"message_id"`
+				}
+				json.Unmarshal(raw.Data, &legacy)
+				if legacy.MessageID != "" {
+					msgData.ID = legacy.MessageID
+				}
 			}
 		}
 	}

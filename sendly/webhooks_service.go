@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -362,7 +363,7 @@ func (s *WebhooksService) RetryDelivery(ctx context.Context, webhookID, delivery
 		return errors.New("invalid delivery ID format")
 	}
 
-	path := fmt.Sprintf("/webhooks/%s/deliveries/%s/retry", webhookID, deliveryID)
+	path := fmt.Sprintf("/webhooks/%s/deliveries/%s/retry", url.PathEscape(webhookID), url.PathEscape(deliveryID))
 	return s.client.request(ctx, "POST", path, nil, nil)
 }
 

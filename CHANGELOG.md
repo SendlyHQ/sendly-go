@@ -1,6 +1,83 @@
 # sendly-go
 
-## Unreleased
+## 4.0.0
+
+### Breaking Changes
+
+- **The module path is now `github.com/SendlyHQ/sendly-go/v4`.** Go carries the major version in the import path, so upgrading means changing your imports:
+
+  ```sh
+  go get github.com/SendlyHQ/sendly-go/v4
+  ```
+
+  ```go
+  import "github.com/SendlyHQ/sendly-go/v4/sendly"
+  ```
+
+  No exported identifier was removed or renamed, so after the import rewrite your code compiles unchanged. Every v3 release stays available under the old path.
+
+- **Only message events get a message view.** When a webhook is parsed, `event.Data` is filled only for `message.*` events, and not for `message.opt_in` or `message.opt_out`, which carry an opt-out record rather than a message. For every other event `event.Data` is now zero-valued: read the payload from `event.RawObject`, or decode it with `event.DecodeObject(&v)`. This fixes two defects. A lifecycle event whose object reused a message field name at a different type (a nested `status`, a numeric `id`) made the whole event fail to parse, `RawObject` included. And the legacy `message_id` fallback filled a non-message event's id, so `contact.auto_flagged` reported the contact's id as a message id. A `message.*` event whose object does not decode still returns an error.
+
+### Security
+
+- **Path parameters are percent-encoded.** Every id you pass is now encoded (`url.PathEscape`) before it goes into the request path. An id containing `/`, `?` or `#` used to change which endpoint the request reached: an id of `../../account/keys` left its collection and hit another endpoint carrying your API key. Ordinary ids are sent byte-for-byte as before.
+
+## 3.40.0
+
+### Minor Changes
+
+- **Lifecycle webhook payloads are reachable.** `ParseEvent` decoded every
+  `data.object` into `WebhookMessageData`, which is correct for `message.*` and
+  wrong for `rcs_*`, `whatsapp_*`, `call.*`, `brand.*`, `campaign.*`,
+  `assignment.*`, `number.*`, `port*` and `contact.*` — those carry a different
+  object entirely, so the struct came back with every field at its default and
+  **no error was raised**. An integration looked healthy while dropping `agent_id`
+  and `stage`. `WebhookEvent` gains `RawObject` (the payload exactly as it
+  arrived, for every event type) and `DecodeObject(&v)` to unmarshal it into a
+  type of your choosing.
+
+- **A lifecycle event can no longer fail the parse.** The message decode is now
+  attempted only for events that carry a message, and never fails the event: a
+  payload reusing a message field name at a different type (a nested `status`
+  object, a numeric `id`) previously made the whole event unreadable, `RawObject`
+  included.
+
+- **`message.opt_in` and `message.opt_out` are no longer decoded as messages.**
+  They share the prefix but carry an opt-out record
+  (`{phone_number, keyword, from_number, timestamp}`), so the message view for
+  them was entirely empty.
+
+- **Every event type the API emits is now declared**, including `conversation.*`,
+  `draft.*`, `rcs_*`, `whatsapp_*` and `call.*`, which were all missing.
+
+### Upgrade notes
+
+Nothing was removed and no signature changed, so existing code compiles
+unchanged. Two behavior changes are worth checking a handler against.
+
+- **`event.Data` is now zeroed for every non-message event.** Previously it was
+  populated but wrong, and where a lifecycle object happened to reuse a message
+  field name the wrong value came through under a message's meaning:
+  `contact.auto_flagged` carries the **contact** id in `id`, which `Data.ID`
+  reported as the message id, so a handler keyed on it acted on the wrong
+  record. If you read `event.Data` on anything but `message.*`, move to
+  `DecodeObject`. On `contact.auto_flagged` the message that triggered the flag
+  is the payload's own `message_id` field, not `id`.
+
+- **Handlers will start seeing events that never arrived before.** A lifecycle
+  payload whose field collided with a message field's type — a nested `status`
+  on `call.completed`, a numeric `id` on `number.activated` — used to fail
+  `ParseEvent` outright, so your handler never got an event to dispatch on.
+  They parse now, which means a `default` branch that has never run may start
+  running.
+
+### Deprecated
+
+- `WebhookEventMessageQueued` and `WebhookEventMessageUndelivered`. The API has
+  never emitted these and rejects them with a 400 when you subscribe. They are
+  kept for one more cycle and will be removed in the next major.
+
+## 3.39.0
 
 ### Minor Changes
 
