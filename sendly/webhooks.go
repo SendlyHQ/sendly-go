@@ -80,6 +80,10 @@ const (
 	WebhookEventCallStarted                WebhookEventType = "call.started"
 	WebhookEventCallCompleted              WebhookEventType = "call.completed"
 	WebhookEventCallRecordingReady         WebhookEventType = "call.recording.ready"
+	WebhookEventShortCodeActionRequired      WebhookEventType = "short_code.action_required"
+	WebhookEventShortCodeRejected            WebhookEventType = "short_code.rejected"
+	WebhookEventShortCodeFiled               WebhookEventType = "short_code.filed"
+	WebhookEventShortCodeLive                WebhookEventType = "short_code.live"
 
 	signatureToleranceSeconds = 300
 )
