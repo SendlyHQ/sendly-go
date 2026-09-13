@@ -80,6 +80,8 @@ type Client struct {
 	WhatsApp *WhatsAppService
 	// RCS provides access to RCS channel operations (registration, agents, capability checks).
 	RCS *RCSService
+	// Calls provides access to phone calls handled by your AI agents (place, list, inspect, end, recordings).
+	Calls *CallsService
 
 	rateLimiter *rate.Limiter
 }
@@ -189,6 +191,7 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 		Dossier:      &RCSDossierService{client: c},
 		Brands:       &RCSBrandsService{client: c},
 	}
+	c.Calls = &CallsService{client: c}
 
 	return c
 }
@@ -249,6 +252,9 @@ func (c *Client) requestURL(ctx context.Context, method, fullURL string, body in
 			return err
 		}
 		if _, ok := err.(*InsufficientCreditsError); ok {
+			return err
+		}
+		if se, ok := err.(*SendlyError); ok && se.StatusCode >= 400 && se.StatusCode < 500 {
 			return err
 		}
 

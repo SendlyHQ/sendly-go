@@ -716,6 +716,11 @@ drop them from your `Events` list.
 owned, err := client.Numbers.List(ctx)
 for _, n := range owned.Numbers {
     fmt.Printf("%s: %s (%s)\n", n.ID, n.PhoneNumber, n.Status)
+    // VoiceEnabled and VoiceMode ("none", "ring_dashboard", "agent") say
+    // whether the number can take and place phone calls (see Voice Calls).
+    if n.VoiceEnabled != nil && *n.VoiceEnabled && n.VoiceMode != nil {
+        fmt.Printf("  voice: %s\n", *n.VoiceMode)
+    }
 }
 
 // Get a single number (includes whether it is your default sender)
@@ -814,6 +819,87 @@ _, err = client.Links.Disable(ctx, link.Code)
 // Re-enable it
 _, err = client.Links.Enable(ctx, link.Code)
 ```
+
+## Voice Calls
+
+Place phone calls that one of your AI agents handles, follow them while they
+ring and after they end, hang up early, and download recordings. Agents are
+created in the dashboard under Calls → Agents; the number you call from must
+have voice switched on there (Calls → Settings) and, for outbound calls, a
+registered emergency address. `Create` and `Hangup` need a live API key with
+the `calls:write` scope; the reads need `calls:read`.
+
+Calls are billed per started minute from your prepaid credits: 2 credits a
+minute outbound, plus 8 a minute while an AI agent is on the line (so 10 for a
+call placed here), to US and Canadian numbers only. An unanswered call costs
+nothing. Voice is being enabled workspace by workspace; until it is on for
+yours, every method returns a `NotFoundError` with code `voice_not_enabled`.
+
+```go
+// Place a call. It comes back ringing; the agent greets whoever answers.
+call, err := client.Calls.Create(ctx, &sendly.CreateCallRequest{
+    To:      "+15555550123",
+    AgentID: "3c4d5e6f-7081-4293-a4b5-c6d7e8f90a1b",
+    From:    "+15555550188", // optional when exactly one number has voice on
+    Context: "You are calling Jordan to confirm the 3pm appointment on Tuesday.",
+    Metadata: map[string]string{"crmId": "lead_8812"},
+})
+if err != nil {
+    var sendlyErr *sendly.SendlyError
+    switch {
+    case sendly.IsInsufficientCreditsError(err):
+        log.Fatal("Top up: the balance doesn't cover the first minute")
+    case errors.As(err, &sendlyErr) && sendlyErr.Code == sendly.CallErrorCodeE911Required:
+        log.Fatal("Register an emergency address for the number in the dashboard")
+    case errors.As(err, &sendlyErr) && sendlyErr.Code == sendly.CallErrorCodeLinesBusy:
+        log.Println("Every line is in use, retry shortly")
+    default:
+        log.Fatal(err)
+    }
+}
+fmt.Printf("%s is %s\n", call.ID, call.Status) // ringing
+
+// Follow the call. Agent-handled calls include the transcript on Get.
+call, err = client.Calls.Get(ctx, call.ID)
+fmt.Println(call.Status, call.DurationSecs, call.CreditsCharged)
+if call.HangupClass != nil {
+    fmt.Println("ended:", *call.HangupClass)
+}
+for _, line := range call.Transcript {
+    fmt.Printf("[%dms] %s: %s\n", line.AtMs, line.Speaker, line.Text)
+}
+
+// List calls, newest first, with filters and pagination
+calls, err := client.Calls.List(ctx, &sendly.ListCallsRequest{
+    Status:    sendly.CallStatusCompleted,
+    Direction: sendly.CallDirectionOutbound,
+    AgentID:   "3c4d5e6f-7081-4293-a4b5-c6d7e8f90a1b",
+    Limit:     20,
+})
+for _, c := range calls.Data {
+    fmt.Printf("%s %s -> %s (%d credits)\n", c.ID, *c.From, *c.To, c.CreditsCharged)
+}
+if calls.Pagination.HasMore {
+    // fetch the next page with Offset: calls.Pagination.Offset + calls.Pagination.Limit
+}
+
+// Hang up. A ringing call becomes cancelled, an active one completed; a call
+// that already ended is returned unchanged.
+call, err = client.Calls.Hangup(ctx, call.ID)
+
+// Download the recording once it is ready. The URL is signed and valid for
+// five minutes; fetch again after ExpiresAt for a fresh one.
+rec, err := client.Calls.Recording(ctx, call.ID)
+if rec.Status == sendly.CallRecordingStatusReady {
+    fmt.Println(*rec.URL, *rec.ContentType, *rec.ExpiresAt) // audio/ogg
+}
+```
+
+To find a number to call from, look for `VoiceEnabled` on `client.Numbers.List`
+(see [Numbers](#numbers)). The `call.started`, `call.completed` and
+`call.recording.ready` webhooks carry the call in snake_case; decode it into a
+`sendly.WebhookCallData` with `event.DecodeObject(&callData)`, where `Billing`
+and `Metadata` round-trip alongside `HangupClass` and `CreditsCharged`.
 
 ## Error Handling
 

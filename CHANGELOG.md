@@ -1,5 +1,11 @@
 # sendly-go
 
+## Unreleased
+
+### Patch Changes
+
+- **4xx responses are no longer retried.** The client used to retry every status it had no typed error for, so a 409 `lines_busy`, 428 `e911_required`, 403 `live_key_required` or 409 `rcs_field_locked` went through the full backoff (three more attempts, about seven seconds) before the `*SendlyError` reached you. Any 4xx now returns at once; only 429 (`*RateLimitError`), 5xx responses, timeouts and network errors retry as before. If you were passing `WithMaxRetries(0)` to get the refusal quickly, you can drop it.
+
 ## 4.0.0
 
 ### Breaking Changes

@@ -335,15 +335,15 @@ func TestIdempotency_RotatedKeyKeptAcrossSubsequentNetworkError(t *testing.T) {
 	}
 }
 
-func TestIdempotency_KeyKeptAcrossNon5xxRetry(t *testing.T) {
+func TestIdempotency_KeyKeptAcrossRateLimitRetry(t *testing.T) {
 	attempts := 0
 	var keys []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts++
 		keys = append(keys, keyOfHeader(r))
 		if attempts == 1 {
-			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(APIError{Code: "CONFLICT", Message: "Resource busy"})
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(APIError{Code: "RATE_LIMIT_EXCEEDED", Message: "Too many requests"})
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -363,7 +363,7 @@ func TestIdempotency_KeyKeptAcrossNon5xxRetry(t *testing.T) {
 		t.Fatalf("expected 2 attempts, got %d", attempts)
 	}
 	if keys[0] != keys[1] {
-		t.Errorf("expected key to be kept across a non-5xx retry, got '%s' then '%s'", keys[0], keys[1])
+		t.Errorf("expected key to be kept across a 429 retry, got '%s' then '%s'", keys[0], keys[1])
 	}
 }
 
