@@ -1,6 +1,6 @@
 # sendly-go
 
-## Unreleased
+## 4.1.0
 
 ### Patch Changes
 
