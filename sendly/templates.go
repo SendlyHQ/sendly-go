@@ -183,10 +183,6 @@ type CloneTemplateRequest struct {
 }
 
 // Clone copies an existing template into a new draft.
-//
-// Not available yet: the versioned API serves no clone route, so this call
-// fails with a *NotFoundError. To copy a template today, read it with Get and
-// pass its Text to Create.
 func (s *TemplatesService) Clone(ctx context.Context, id string, req *CloneTemplateRequest) (*Template, error) {
 	body := map[string]interface{}{}
 	if req != nil && req.Name != "" {
