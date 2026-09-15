@@ -82,6 +82,8 @@ type Client struct {
 	RCS *RCSService
 	// Calls provides access to phone calls handled by your AI agents (place, list, inspect, end, recordings).
 	Calls *CallsService
+	// Voice configures voice: numbers, emergency addresses, AI agents and their voices.
+	Voice *VoiceService
 
 	rateLimiter *rate.Limiter
 }
@@ -192,6 +194,12 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 		Brands:       &RCSBrandsService{client: c},
 	}
 	c.Calls = &CallsService{client: c}
+	c.Voice = &VoiceService{
+		client:  c,
+		Numbers: &VoiceNumbersService{client: c},
+		Agents:  &VoiceAgentsService{client: c},
+		Voices:  &VoicesService{client: c},
+	}
 
 	return c
 }
@@ -255,6 +263,9 @@ func (c *Client) requestURL(ctx context.Context, method, fullURL string, body in
 			return err
 		}
 		if se, ok := err.(*SendlyError); ok && se.StatusCode >= 400 && se.StatusCode < 500 {
+			return err
+		}
+		if !cfg.retryServerErrors && isServerErrorResponse(err) {
 			return err
 		}
 

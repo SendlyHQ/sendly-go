@@ -823,11 +823,11 @@ _, err = client.Links.Enable(ctx, link.Code)
 ## Voice Calls
 
 Place phone calls that one of your AI agents handles, follow them while they
-ring and after they end, hang up early, and download recordings. Agents are
-created in the dashboard under Calls → Agents; the number you call from must
-have voice switched on there (Calls → Settings) and, for outbound calls, a
-registered emergency address. `Create` and `Hangup` need a live API key with
-the `calls:write` scope; the reads need `calls:read`.
+ring and after they end, hang up early, and download recordings. Create
+agents and switch voice on for the number you call from in code (see
+[Configure voice](#configure-voice)) or in the dashboard; for outbound calls
+the number also needs a registered emergency address. `Create` and `Hangup`
+need a live API key with the `calls:write` scope; the reads need `calls:read`.
 
 Calls are billed per started minute from your prepaid credits: 2 credits a
 minute outbound, plus 8 a minute while an AI agent is on the line (so 10 for a
@@ -850,7 +850,7 @@ if err != nil {
     case sendly.IsInsufficientCreditsError(err):
         log.Fatal("Top up: the balance doesn't cover the first minute")
     case errors.As(err, &sendlyErr) && sendlyErr.Code == sendly.CallErrorCodeE911Required:
-        log.Fatal("Register an emergency address for the number in the dashboard")
+        log.Fatal("Register an emergency address first: client.Voice.Numbers.RegisterEmergencyAddress")
     case errors.As(err, &sendlyErr) && sendlyErr.Code == sendly.CallErrorCodeLinesBusy:
         log.Println("Every line is in use, retry shortly")
     default:
@@ -900,6 +900,123 @@ To find a number to call from, look for `VoiceEnabled` on `client.Numbers.List`
 `call.recording.ready` webhooks carry the call in snake_case; decode it into a
 `sendly.WebhookCallData` with `event.DecodeObject(&callData)`, where `Billing`
 and `Metadata` round-trip alongside `HangupClass` and `CreditsCharged`.
+
+Recordings of agent calls are dual-channel: the agent is on the left channel
+and the other party on the right.
+
+### Configure voice
+
+Everything a call depends on can be set up in code: switch voice on for a
+number and choose how it answers, register the number's emergency address,
+and create the AI agents that talk to callers. Reads need `calls:read`; writes
+need a live API key with `calls:write`. In a team workspace, changing a number
+or its emergency address also needs a role with `settings:write`, and managing
+agents needs `api_keys:write`, because each agent holds its own scoped sending
+key.
+
+Switching voice on for a number changes how real phone calls to it are
+answered, and an agent pointed at a number answers real callers. An emergency
+address is required before a number can place calls in the US and Canada and
+costs 1.50 USD a month.
+
+```go
+// See which voices an agent can speak with
+voices, err := client.Voice.Voices.List(ctx)
+for _, v := range voices.Data {
+    fmt.Printf("%s: %s (%s)\n", v.ID, v.Label, v.Language)
+}
+
+// Create an agent. Only Name is required; it starts switched on and may text
+// the people it talks to. Set SendSms to false to stop that.
+sendSms := true
+agent, err := client.Voice.Agents.Create(ctx, &sendly.CreateVoiceAgentRequest{
+    Name:         "Front desk",
+    Voice:        "ashley",
+    Language:     "en-US",
+    Greeting:     "Thanks for calling Acme, how can I help?",
+    Instructions: "Answer questions about opening hours and take a message for anything else.",
+    Tools:        &sendly.VoiceAgentToolsRequest{SendSms: &sendSms},
+})
+if err != nil {
+    var sendlyErr *sendly.SendlyError
+    if errors.As(err, &sendlyErr) && sendlyErr.Code == sendly.VoiceErrorCodeAgentLimit {
+        log.Fatal("This workspace already has 20 agents")
+    }
+    log.Fatal(err)
+}
+fmt.Println(agent.ID, agent.VoiceLabel, agent.CanSendSms)
+
+// Change only the fields you set. A pointer to "" removes the greeting or
+// instructions.
+greeting := "Thanks for calling Acme. This call may be recorded."
+agent, err = client.Voice.Agents.Update(ctx, agent.ID, &sendly.UpdateVoiceAgentRequest{
+    Greeting: &greeting,
+})
+
+// List the workspace's numbers with their voice settings and per-minute rates
+numbers, err := client.Voice.Numbers.List(ctx)
+for _, n := range numbers.Data {
+    fmt.Printf("%s voice=%v mode=%s agent answers at %d credits/min\n",
+        n.PhoneNumber, n.VoiceEnabled, n.VoiceMode, n.RatePerMinute.Agent)
+}
+
+// Let the agent answer a number. Pass the number's ID or its E.164 form.
+enabled := true
+number, err := client.Voice.Numbers.Update(ctx, "+15555550188", &sendly.UpdateVoiceNumberRequest{
+    VoiceEnabled: &enabled,
+    VoiceMode:    sendly.VoiceModeAgent,
+    AgentID:      &agent.ID,
+})
+
+// Register the emergency address before placing calls from the number
+number, err = client.Voice.Numbers.RegisterEmergencyAddress(ctx, number.ID, &sendly.EmergencyAddress{
+    Street: "500 Example Ave",
+    Unit:   "Suite 2",
+    City:   "Austin",
+    State:  "TX",
+    Zip:    "78701",
+})
+if err != nil {
+    var validationErr *sendly.ValidationError
+    if errors.As(err, &validationErr) && validationErr.Code == sendly.VoiceErrorCodeInvalidAddress {
+        var suggested sendly.EmergencyAddress
+        if json.Unmarshal(validationErr.Extra["suggested"], &suggested) == nil && suggested.Street != "" {
+            log.Fatalf("Did you mean %s, %s, %s %s?", suggested.Street, suggested.City, suggested.State, suggested.Zip)
+        }
+        log.Fatal("Check the address: ", validationErr.Message)
+    }
+    log.Fatal(err)
+}
+fmt.Println(number.EmergencyAddress.Status)
+
+// Send calls back to the team, then remove the agent. Deleting an agent
+// that still answers a number fails with code agent_in_use.
+number, err = client.Voice.Numbers.Update(ctx, number.ID, &sendly.UpdateVoiceNumberRequest{
+    VoiceMode: sendly.VoiceModeRingDashboard,
+})
+deleted, err := client.Voice.Agents.Delete(ctx, agent.ID)
+if err != nil {
+    var sendlyErr *sendly.SendlyError
+    if errors.As(err, &sendlyErr) && sendlyErr.Code == sendly.VoiceErrorCodeAgentInUse {
+        var numbers []string
+        json.Unmarshal(sendlyErr.Extra["numbers"], &numbers)
+        log.Fatal("Point these numbers at another agent or back to the team first: ", numbers)
+    }
+    log.Fatal(err)
+}
+fmt.Println(deleted.ID, deleted.Deleted)
+```
+
+A mode on its own is enough: `sendly.VoiceModeRingDashboard` or
+`sendly.VoiceModeAgent` switches voice on (and can be refused like any
+switch-on), and `sendly.VoiceModeNone` switches it off. `VoiceEnabled`, when
+set, wins: false switches voice off whatever the mode, and true with
+`sendly.VoiceModeNone` rings the dashboard. A pointer to an empty `AgentID`
+clears the stored agent. `RegisterEmergencyAddress` is not retried automatically on a
+5xx such as `carrier_refused`, because every attempt registers the address
+anew. An agent's `TransferTo` number is stored
+but calls are not transferred to it: when a caller asks for a person, the
+agent offers to pass a message on and takes their details.
 
 ## Error Handling
 

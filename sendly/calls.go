@@ -9,9 +9,10 @@ import (
 // CallsService places, lists, inspects and ends phone calls.
 //
 // A call placed over the API is answered by one of the workspace's AI agents
-// (configured in the dashboard under Calls → Agents); the agent talks to the
-// person who picks up. The number you call from must have voice switched on
-// in the dashboard and, for outbound calls, a registered emergency address.
+// (created with VoiceService.Agents or in the dashboard under Calls → Agents);
+// the agent talks to the person who picks up. The number you call from must
+// have voice switched on (VoiceService.Numbers or the dashboard) and, for
+// outbound calls, a registered emergency address.
 // Calls are billed per started minute from the workspace's prepaid credits
 // (an agent-handled outbound call costs 10 credits a minute), and only to
 // US and Canadian numbers.
@@ -151,7 +152,8 @@ const (
 	// only be placed to US and Canadian numbers.
 	CallErrorCodeDestinationNotSupported = "destination_not_supported"
 	// CallErrorCodeE911Required (428, *SendlyError): register an emergency
-	// address for the From number in the dashboard before placing calls.
+	// address for the From number (VoiceNumbersService.RegisterEmergencyAddress
+	// or the dashboard) before placing calls.
 	CallErrorCodeE911Required = "e911_required"
 	// CallErrorCodeInsufficientCredits (402, *InsufficientCreditsError): the
 	// balance doesn't cover the first minute.
@@ -309,7 +311,8 @@ type CallRecording struct {
 	// ExpiresAt is when URL stops working (ISO 8601). Nil unless ready.
 	ExpiresAt *string `json:"expiresAt"`
 	// ContentType is "audio/ogg" when ready, nil otherwise. Recordings are
-	// Ogg/Opus; agent calls are recorded dual-channel (caller left, agent right).
+	// Ogg/Opus; agent calls are recorded dual-channel, with the agent on the
+	// left channel and the other party on the right.
 	ContentType *string `json:"contentType"`
 }
 

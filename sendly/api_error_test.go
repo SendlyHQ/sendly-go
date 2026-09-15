@@ -34,6 +34,31 @@ func TestAPIErrorUnmarshal_CodeKeyWins(t *testing.T) {
 	}
 }
 
+func TestAPIErrorUnmarshal_KeepsOtherTopLevelKeysInExtra(t *testing.T) {
+	body := `{"error": "agent_in_use", "code": "c", "message": "m", "details": {"k": 1}, "errors": [], "numbers": ["+15555550188"], "suggested": null}`
+	apiErr, err := decodeAPIError([]byte(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(apiErr.Extra) != 2 {
+		t.Fatalf("expected only numbers and suggested in Extra, got %v", apiErr.Extra)
+	}
+	if string(apiErr.Extra["numbers"]) != `["+15555550188"]` {
+		t.Errorf("unexpected numbers %s", apiErr.Extra["numbers"])
+	}
+	if string(apiErr.Extra["suggested"]) != "null" {
+		t.Errorf("unexpected suggested %s", apiErr.Extra["suggested"])
+	}
+
+	plain, err := decodeAPIError([]byte(`{"error": "rcs_not_enabled", "message": "off"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if plain.Extra != nil {
+		t.Errorf("expected nil Extra, got %v", plain.Extra)
+	}
+}
+
 func TestAPIErrorUnmarshal_IgnoresNonStringErrorAndNonFieldErrors(t *testing.T) {
 	body := `{"error": {"nested": true}, "message": "m", "errors": ["plain", "strings"]}`
 	apiErr, err := decodeAPIError([]byte(body))

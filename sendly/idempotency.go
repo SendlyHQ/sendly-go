@@ -15,11 +15,12 @@ type RequestOption func(*requestConfig)
 type requestConfig struct {
 	idempotencyKey     string
 	autoIdempotencyKey bool
+	retryServerErrors  bool
 }
 
 // newRequestConfig applies options over the default configuration.
 func newRequestConfig(opts []RequestOption) requestConfig {
-	cfg := requestConfig{autoIdempotencyKey: true}
+	cfg := requestConfig{autoIdempotencyKey: true, retryServerErrors: true}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
@@ -52,6 +53,16 @@ func WithIdempotencyKey(key string) RequestOption {
 func withoutAutoIdempotencyKey() RequestOption {
 	return func(cfg *requestConfig) {
 		cfg.autoIdempotencyKey = false
+	}
+}
+
+// withoutServerErrorRetries returns a 5xx response to the caller instead of
+// retrying it. Used where the server doesn't cache a 5xx and a re-executed
+// attempt repeats a side effect, such as registering an emergency address.
+// Timeouts and network errors are still retried under the same key.
+func withoutServerErrorRetries() RequestOption {
+	return func(cfg *requestConfig) {
+		cfg.retryServerErrors = false
 	}
 }
 

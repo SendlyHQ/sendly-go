@@ -56,8 +56,9 @@ type OwnedNumber struct {
 	// ScheduledReleaseAt is the time the number is scheduled for release, if any.
 	ScheduledReleaseAt *string `json:"scheduledReleaseAt,omitempty"`
 	// VoiceEnabled is true when the number can take and place phone calls
-	// (switched on in the dashboard). Present on List; a voice-enabled number
-	// is what CreateCallRequest.From expects.
+	// (switched on with VoiceNumbersService.Update or in the dashboard).
+	// Present on List; a voice-enabled number is what CreateCallRequest.From
+	// expects.
 	VoiceEnabled *bool `json:"voiceEnabled,omitempty"`
 	// VoiceMode is how the number answers: "none", "ring_dashboard" or
 	// "agent". Present on List.

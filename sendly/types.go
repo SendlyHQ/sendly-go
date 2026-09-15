@@ -464,11 +464,16 @@ type APIError struct {
 	// Errors lists the invalid fields on a validation failure, when the API
 	// reports them.
 	Errors []APIFieldError `json:"errors,omitempty"`
+	// Extra holds any other top-level keys of the error body, undecoded, for
+	// example "numbers" on a 409 agent_in_use or "suggested" on a 422
+	// invalid_address. Decode one with json.Unmarshal. Nil when there are none.
+	Extra map[string]json.RawMessage `json:"-"`
 }
 
 // decodeAPIError reads an error body into an APIError, taking the code from
-// either the "code" or the "error" key since the API sends the latter, and
-// keeping a per-field "errors" list when the API reports one.
+// either the "code" or the "error" key since the API sends the latter,
+// keeping a per-field "errors" list when the API reports one, and keeping
+// every other top-level key in Extra.
 //
 // Deliberately a function rather than an UnmarshalJSON method: APIError is
 // embedded in every typed error, and a method here would be promoted into all
@@ -498,6 +503,19 @@ func decodeAPIError(data []byte) (APIError, error) {
 		var fields []APIFieldError
 		if json.Unmarshal(raw.Errors, &fields) == nil {
 			e.Errors = fields
+		}
+	}
+	var all map[string]json.RawMessage
+	if json.Unmarshal(data, &all) == nil {
+		for key, value := range all {
+			switch key {
+			case "code", "error", "message", "details", "errors":
+				continue
+			}
+			if e.Extra == nil {
+				e.Extra = make(map[string]json.RawMessage)
+			}
+			e.Extra[key] = value
 		}
 	}
 	return e, nil
