@@ -177,6 +177,68 @@ func TestAccountCreateAPIKey_LegacyNestedPayload(t *testing.T) {
 	}
 }
 
+func TestAccountCreateAPIKey_FlatAndNestedPayload(t *testing.T) {
+	var sent map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+			t.Fatalf("failed to decode request body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{
+			"id": "key_5",
+			"name": "Temp bot",
+			"key": "sk_test_v1_raw",
+			"keyPrefix": "sk_test_v1_r",
+			"type": "test",
+			"createdAt": "2026-09-24T10:00:00.000Z",
+			"expiresAt": "2026-10-24T10:00:00.000Z",
+			"apiKey": {
+				"id": "key_5",
+				"name": "Temp bot",
+				"type": "test",
+				"prefix": "sk_test_v1_r...",
+				"scopes": ["sms:send", "sms:read"],
+				"permissions": ["sms:send", "sms:read"],
+				"isActive": true,
+				"isRevoked": false,
+				"createdAt": "2026-09-24T10:00:00.000Z",
+				"lastUsedAt": null,
+				"expiresAt": "2026-10-24T10:00:00.000Z"
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	expiresAt := "2026-10-24T10:00:00.000Z"
+	resp, err := client.Account.CreateAPIKeyWithOptions(context.Background(), CreateAPIKeyRequest{
+		Name:      "Temp bot",
+		ExpiresAt: &expiresAt,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sent["expiresAt"] != expiresAt || sent["type"] != "test" {
+		t.Errorf("expected request to carry expiresAt and type, got %+v", sent)
+	}
+	if resp.ID != "key_5" || resp.Key != "sk_test_v1_raw" || resp.KeyPrefix != "sk_test_v1_r" {
+		t.Errorf("expected flat fields to decode, got %+v", resp)
+	}
+	if resp.APIKey.Prefix != "sk_test_v1_r..." {
+		t.Errorf("expected nested APIKey to win over the mirror, got prefix '%s'", resp.APIKey.Prefix)
+	}
+	if len(resp.APIKey.Permissions) != 2 || resp.APIKey.Permissions[0] != "sms:send" {
+		t.Errorf("expected nested APIKey.Permissions to decode, got %+v", resp.APIKey.Permissions)
+	}
+	if resp.APIKey.ExpiresAt == nil || *resp.APIKey.ExpiresAt != expiresAt {
+		t.Errorf("expected nested APIKey.ExpiresAt '%s', got %v", expiresAt, resp.APIKey.ExpiresAt)
+	}
+	if resp.APIKey.IsRevoked {
+		t.Errorf("expected nested APIKey.IsRevoked false")
+	}
+}
+
 func TestCreateAPIKeyResponse_RoundTrip(t *testing.T) {
 	lastUsed := "2026-02-04T00:00:00.000Z"
 	original := CreateAPIKeyResponse{
