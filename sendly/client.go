@@ -207,7 +207,22 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 // request performs an HTTP request against a versioned API path (relative to
 // BaseURL) with retries and rate limiting.
 func (c *Client) request(ctx context.Context, method, path string, body interface{}, result interface{}, opts ...RequestOption) error {
+	if err := checkPathSegments(path); err != nil {
+		return err
+	}
 	return c.requestURL(ctx, method, c.BaseURL+path, body, result, opts...)
+}
+
+func checkPathSegments(path string) error {
+	if i := strings.IndexByte(path, '?'); i >= 0 {
+		path = path[:i]
+	}
+	for _, segment := range strings.Split(strings.TrimPrefix(path, "/"), "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return &ValidationError{APIError: APIError{Message: `an ID cannot be empty, "." or ".."`}}
+		}
+	}
+	return nil
 }
 
 // requestURL performs an HTTP request against a fully-qualified URL with
@@ -233,8 +248,9 @@ func (c *Client) requestURL(ctx context.Context, method, fullURL string, body in
 	}
 
 	var lastErr error
+	waitedOut := false
 	for attempt := 0; attempt <= c.MaxRetries; attempt++ {
-		if attempt > 0 {
+		if attempt > 0 && !waitedOut {
 			// Exponential backoff
 			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
 			select {
@@ -244,9 +260,13 @@ func (c *Client) requestURL(ctx context.Context, method, fullURL string, body in
 			}
 		}
 
-		err := c.doRequestWithKey(ctx, method, fullURL, body, result, idempotencyKey)
+		waitedOut = false
+		err := c.doRequestWithKey(ctx, method, fullURL, body, result, idempotencyKey, cfg.retryNetworkErrors)
 		if err == nil {
 			return nil
+		}
+		if decodeErr, ok := err.(*responseDecodeError); ok {
+			return decodeErr.err
 		}
 
 		// Don't retry on certain errors
@@ -265,35 +285,43 @@ func (c *Client) requestURL(ctx context.Context, method, fullURL string, body in
 		if se, ok := err.(*SendlyError); ok && se.StatusCode >= 400 && se.StatusCode < 500 {
 			return err
 		}
+		if rateErr, ok := err.(*RateLimitError); ok &&
+			(!retryableRateLimit(rateErr.Code) || rateErr.RetryAfter > maxRetryWaitSeconds) {
+			return err
+		}
 		if !cfg.retryServerErrors && isServerErrorResponse(err) {
+			return err
+		}
+		if _, ok := err.(*NetworkError); ok && !cfg.retryNetworkErrors {
 			return err
 		}
 
 		lastErr = err
 
-		// A 5xx means the server responded (and may have cached that
-		// response under the key), so an auto-generated key is rotated to
-		// let the retry re-execute. Timeouts and network errors leave the
-		// outcome unknown — the key is kept so the server can dedupe a
-		// request that actually went through. Caller-supplied keys are
-		// never rotated.
-		if callerKey == "" && idempotencyKey != "" && isServerErrorResponse(err) {
-			idempotencyKey = generateIdempotencyKey()
-		}
-
 		// Check for rate limit error with Retry-After
-		if rateLimitErr, ok := err.(*RateLimitError); ok {
+		if rateLimitErr, ok := err.(*RateLimitError); ok && attempt < c.MaxRetries {
 			if rateLimitErr.RetryAfter > 0 {
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
 				case <-time.After(time.Duration(rateLimitErr.RetryAfter) * time.Second):
 				}
+				waitedOut = true
 			}
 		}
 	}
 
 	return lastErr
+}
+
+const maxRetryWaitSeconds = 60
+
+func retryableRateLimit(code string) bool {
+	switch strings.ToLower(code) {
+	case "", "unknown_error", "rate_limit_exceeded", "provision_rate_limit", "too_many_concurrent_verifications":
+		return true
+	}
+	return false
 }
 
 // doRequest performs a single HTTP request against a fully-qualified URL.
@@ -304,12 +332,24 @@ func (c *Client) doRequest(ctx context.Context, method, fullURL string, body int
 	if method == "POST" {
 		idempotencyKey = generateIdempotencyKey()
 	}
-	return c.doRequestWithKey(ctx, method, fullURL, body, result, idempotencyKey)
+	err := c.doRequestWithKey(ctx, method, fullURL, body, result, idempotencyKey, true)
+	if decodeErr, ok := err.(*responseDecodeError); ok {
+		return decodeErr.err
+	}
+	return err
+}
+
+type responseDecodeError struct {
+	err *NetworkError
+}
+
+func (e *responseDecodeError) Error() string {
+	return e.err.Error()
 }
 
 // doRequestWithKey performs a single HTTP request against a fully-qualified
 // URL, attaching the given idempotency key when non-empty.
-func (c *Client) doRequestWithKey(ctx context.Context, method, fullURL string, body interface{}, result interface{}, idempotencyKey string) error {
+func (c *Client) doRequestWithKey(ctx context.Context, method, fullURL string, body interface{}, result interface{}, idempotencyKey string, replayable bool) error {
 	var bodyReader io.Reader
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
@@ -322,6 +362,9 @@ func (c *Client) doRequestWithKey(ctx context.Context, method, fullURL string, b
 	req, err := http.NewRequestWithContext(ctx, method, fullURL, bodyReader)
 	if err != nil {
 		return &NetworkError{Message: "failed to create request", Err: err}
+	}
+	if !replayable {
+		req.GetBody = nil
 	}
 
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
@@ -352,7 +395,7 @@ func (c *Client) doRequestWithKey(ctx context.Context, method, fullURL string, b
 
 	if result != nil && len(respBody) > 0 {
 		if err := json.Unmarshal(respBody, result); err != nil {
-			return &NetworkError{Message: "failed to unmarshal response", Err: err}
+			return &responseDecodeError{err: &NetworkError{Message: "failed to unmarshal response", Err: err}}
 		}
 	}
 
@@ -378,6 +421,12 @@ func (c *Client) handleErrorResponse(resp *http.Response, body []byte) error {
 		retryAfter := 0
 		if ra := resp.Header.Get("Retry-After"); ra != "" {
 			retryAfter, _ = strconv.Atoi(ra)
+		} else {
+			for _, key := range []string{"retryAfter", "retry_after"} {
+				if raw, ok := apiErr.Extra[key]; ok && json.Unmarshal(raw, &retryAfter) == nil {
+					break
+				}
+			}
 		}
 		return &RateLimitError{
 			APIError:   apiErr,

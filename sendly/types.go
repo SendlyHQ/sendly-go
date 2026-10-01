@@ -1,6 +1,9 @@
 package sendly
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"math"
+)
 
 // Message represents an SMS message.
 type Message struct {
@@ -151,8 +154,8 @@ type WhatsAppTemplateSendParams struct {
 //     caption); also window-bound
 //   - Template — an approved template; works regardless of the window
 //
-// WhatsApp sends require a live API key and a From number that has been
-// connected to WhatsApp (see WhatsAppSignupService).
+// WhatsApp sends require the sms:send scope, a live API key and a From
+// number that has been connected to WhatsApp (see WhatsAppSignupService).
 type SendWhatsAppMessageRequest struct {
 	// Channel selects the WhatsApp channel; SendWhatsApp sets it to "whatsapp" automatically.
 	Channel string `json:"channel"`
@@ -210,14 +213,22 @@ type WhatsAppMessage struct {
 	To string `json:"to"`
 	// From is the sending number.
 	From string `json:"from"`
-	// Text is the body text for free-form text sends; nil for template and media sends.
+	// Text is the body text for free-form text sends, or the caption for media
+	// sends (pass it as Text with MediaUrls); nil for template sends and for
+	// media sent without a caption.
 	Text *string `json:"text,omitempty"`
 	// Status is the delivery status.
 	Status MessageStatus `json:"status"`
 	// Segments is always 1 — WhatsApp has no segment concept.
 	Segments int `json:"segments"`
-	// CreditsUsed is the credits charged for this message (priced by
-	// destination country and category).
+	// CreditsUsed is the credits charged for this message. Free-form text
+	// or media inside the 24-hour window: 1 credit each for the first 1,000
+	// per sending number per calendar month (UTC), then the destination's
+	// utility template price; countries without a listed price use the
+	// default utility price of 12 credits. Templates are priced by category
+	// and destination country; countries without a listed price use 33
+	// (marketing), 12 (utility) and 12 (authentication) credits. A failed
+	// send gives its slot back.
 	CreditsUsed int `json:"creditsUsed"`
 	// WhatsApp contains the WhatsApp-specific details.
 	WhatsApp WhatsAppMessageDetails `json:"whatsapp"`
@@ -388,6 +399,56 @@ type GroupMessageResponse struct {
 	Simulated bool `json:"simulated,omitempty"`
 	// Message is a human-readable note, present on simulated sends.
 	Message string `json:"message,omitempty"`
+	// Recipients lists each recipient with its status. Live sends carry it;
+	// simulated sends leave it empty.
+	Recipients []GroupRecipient `json:"recipients,omitempty"`
+}
+
+// GroupRecipient is one recipient of a live group send.
+type GroupRecipient struct {
+	// PhoneNumber is the recipient's phone number in E.164 format.
+	PhoneNumber string `json:"phoneNumber"`
+	// Status is the recipient's status when the send was accepted, for
+	// example "queued".
+	Status string `json:"status"`
+}
+
+// UnmarshalJSON decodes a group send whose "to" lists phone numbers (a
+// simulated send) or recipient objects (a live send). To holds the numbers
+// either way; a live send also fills Recipients.
+func (g *GroupMessageResponse) UnmarshalJSON(data []byte) error {
+	type groupMessageResponseAlias GroupMessageResponse
+	var raw struct {
+		groupMessageResponseAlias
+		To json.RawMessage `json:"to"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	*g = GroupMessageResponse(raw.groupMessageResponseAlias)
+	if len(raw.To) == 0 || string(raw.To) == "null" {
+		return nil
+	}
+
+	var numbers []string
+	if err := json.Unmarshal(raw.To, &numbers); err == nil {
+		g.To = numbers
+		return nil
+	}
+
+	var recipients []GroupRecipient
+	if err := json.Unmarshal(raw.To, &recipients); err != nil {
+		return err
+	}
+	g.To = make([]string, len(recipients))
+	for i, recipient := range recipients {
+		g.To[i] = recipient.PhoneNumber
+	}
+	if g.Recipients == nil {
+		g.Recipients = recipients
+	}
+	return nil
 }
 
 // EnhanceMessageRequest is the request to AI-enhance a draft message. Provide
@@ -428,7 +489,7 @@ type SendMessageResponse Message
 
 // ListMessagesRequest is the request to list messages.
 type ListMessagesRequest struct {
-	// Limit is the maximum number of messages to return (default: 20, max: 100).
+	// Limit is the maximum number of messages to return (default: 50, max: 100).
 	Limit int
 	// Offset is the number of messages to skip.
 	Offset int
@@ -442,8 +503,28 @@ type ListMessagesRequest struct {
 type ListMessagesResponse struct {
 	// Data contains the list of messages.
 	Data []Message `json:"data"`
-	// Count is the total number of messages matching the query.
+	// Count is the number of messages in this page, not the number matching
+	// the query. Use Pagination.Total for that.
 	Count int `json:"count"`
+	// Pagination describes where this page sits in the full result.
+	Pagination *ListMessagesPagination `json:"pagination,omitempty"`
+}
+
+// ListMessagesPagination describes where a page of messages sits in the full
+// result.
+type ListMessagesPagination struct {
+	// Total is the number of messages matching the query.
+	Total int `json:"total"`
+	// Limit is the page size.
+	Limit int `json:"limit"`
+	// Offset is the number of messages skipped before this page.
+	Offset int `json:"offset"`
+	// Page is the page number, starting at 1.
+	Page int `json:"page"`
+	// TotalPages is the number of pages at this page size.
+	TotalPages int `json:"totalPages"`
+	// HasMore reports whether more messages follow this page.
+	HasMore bool `json:"hasMore"`
 }
 
 // APIFieldError points at one invalid field in a request. Path is the
@@ -657,9 +738,11 @@ type BatchMessageResult struct {
 	DeliveredAt *string `json:"deliveredAt,omitempty"`
 }
 
-// BatchMessageResponse represents the response from sending batch messages.
+// BatchMessageResponse is a batch: the response from sending one, or a batch
+// read back with GetBatch or ListBatches.
 type BatchMessageResponse struct {
-	// BatchID is the unique batch identifier.
+	// BatchID is the unique batch identifier. It is filled on every batch,
+	// including those from GetBatch and ListBatches, which send it as "id".
 	BatchID string `json:"batchId"`
 	// Status is the batch status.
 	Status BatchStatus `json:"status"`
@@ -679,11 +762,51 @@ type BatchMessageResponse struct {
 	CreatedAt string `json:"createdAt,omitempty"`
 	// CompletedAt is when the batch completed.
 	CompletedAt *string `json:"completedAt,omitempty"`
+	// ID is the unique batch identifier, the same value as BatchID.
+	ID string `json:"id,omitempty"`
+	// Delivered is the number of messages delivered. GetBatch and ListBatches
+	// report it; a send response leaves it 0.
+	Delivered int `json:"delivered"`
+	// CreditsReserved is the credits reserved when the batch was accepted.
+	// GetBatch and ListBatches report it; a send response leaves it 0.
+	CreditsReserved int `json:"creditsReserved"`
+	// CreditsRefunded is the credits returned for messages that were not sent.
+	CreditsRefunded int `json:"creditsRefunded"`
+	// OptedOutSkipped is the number of recipients a send skipped because they
+	// opted out. Only send responses carry it.
+	OptedOutSkipped int `json:"optedOutSkipped,omitempty"`
+	// InvalidSkipped is the number of recipients a send skipped because they
+	// cannot receive SMS. Only send responses carry it.
+	InvalidSkipped int `json:"invalidSkipped,omitempty"`
+	// Retrying is the number of messages a send is retrying after a
+	// temporary carrier error. They are counted in neither Sent nor Failed,
+	// and their credits stay charged. Only send responses carry it.
+	Retrying int `json:"retrying,omitempty"`
+}
+
+// UnmarshalJSON decodes a batch from either shape the API sends: a send
+// response names the identifier "batchId", GetBatch and ListBatches name it
+// "id". BatchID and ID are both filled from whichever is present.
+func (b *BatchMessageResponse) UnmarshalJSON(data []byte) error {
+	type batchMessageResponseAlias BatchMessageResponse
+	var raw batchMessageResponseAlias
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	*b = BatchMessageResponse(raw)
+	if b.BatchID == "" {
+		b.BatchID = b.ID
+	}
+	if b.ID == "" {
+		b.ID = b.BatchID
+	}
+	return nil
 }
 
 // ListBatchesRequest is the request to list batches.
 type ListBatchesRequest struct {
-	// Limit is the maximum number of batches to return (default: 20, max: 100).
+	// Limit is the maximum number of batches to return (default: 50, max: 100).
 	Limit int
 	// Offset is the number of batches to skip.
 	Offset int
@@ -695,11 +818,15 @@ type ListBatchesRequest struct {
 type ListBatchesResponse struct {
 	// Data contains the list of batches.
 	Data []BatchMessageResponse `json:"data"`
-	// Count is the total number of batches.
+	// Count is the number of batches in this page, not the number matching
+	// the query.
 	Count int `json:"count"`
 }
 
 // BatchPreviewItem represents a single message in a batch preview.
+//
+// Deprecated: the preview does not return a per-message list. Blocked
+// messages are listed in BatchPreviewResponse.BlockedMessages.
 type BatchPreviewItem struct {
 	// To is the recipient phone number.
 	To string `json:"to"`
@@ -721,24 +848,199 @@ type BatchPreviewItem struct {
 
 // BatchPreviewResponse is the response from previewing a batch.
 type BatchPreviewResponse struct {
-	// CanSend indicates if the entire batch can be sent.
+	// CanSend reports whether the preview found nothing that stops a send:
+	// at least one message is sendable, the batch has at most 10,000
+	// messages, no message is blocked for a reason other than an opt-out (a
+	// live send skips opted-out recipients but rejects the whole batch for
+	// any other block), the key has the sms:send scope, and
+	// HasSufficientCredits is true (a test key needs no credits, as its
+	// sends are free).
+	//
+	// Blocks are judged as a live send judges them. A test key's send skips
+	// the verification and destination checks, so it can go through while
+	// CanSend is false. The preview does not make every check a send makes:
+	// CreditsNeeded counts a repeated recipient once while a send charges
+	// every message, and a suspended workspace or an exceeded monthly
+	// message quota is refused only when you send.
 	CanSend bool `json:"canSend"`
 	// TotalMessages is the total number of messages.
+	//
+	// Deprecated: use Total, which holds the same value.
 	TotalMessages int `json:"totalMessages"`
 	// WillSend is the number of messages that will be sent.
+	//
+	// Deprecated: use Sendable, which holds the same value.
 	WillSend int `json:"willSend"`
 	// Blocked is the number of messages that are blocked.
 	Blocked int `json:"blocked"`
 	// CreditsNeeded is the total credits needed.
 	CreditsNeeded int `json:"creditsNeeded"`
 	// CurrentBalance is the current credit balance.
+	//
+	// Deprecated: use CreditBalance, which holds the same value.
 	CurrentBalance int `json:"currentBalance"`
 	// HasEnoughCredits indicates if there are enough credits.
+	//
+	// Deprecated: use HasSufficientCredits, which holds the same value.
 	HasEnoughCredits bool `json:"hasEnoughCredits"`
-	// Messages contains the preview for each message.
+	// Messages is always empty.
+	//
+	// Deprecated: the preview does not return a per-message list. Use
+	// BlockedMessages for the messages that would not be sent.
 	Messages []BatchPreviewItem `json:"messages"`
-	// BlockReasons is a count of block reasons.
+	// BlockReasons counts the blocked messages by reason.
 	BlockReasons map[string]int `json:"blockReasons,omitempty"`
+	// Total is the number of messages in the request.
+	Total int `json:"total"`
+	// Sendable is the number of messages that can be sent.
+	Sendable int `json:"sendable"`
+	// Duplicates is the number of repeated recipients in the request.
+	Duplicates int `json:"duplicates"`
+	// CreditBalance is the credit balance the send would draw on.
+	CreditBalance int `json:"creditBalance"`
+	// HasSufficientCredits reports whether the balance, with any overage
+	// allowance, covers CreditsNeeded.
+	HasSufficientCredits bool `json:"hasSufficientCredits"`
+	// Pooled is true when the balance is an enterprise credit pool.
+	Pooled bool `json:"pooled"`
+	// KeyType is the type of the API key that made the request: "test" or
+	// "live".
+	KeyType string `json:"keyType"`
+	// KeyScopes is the scopes of the API key that made the request.
+	KeyScopes []string `json:"keyScopes"`
+	// HasWriteScope reports whether the key has the sms:send scope a send
+	// needs.
+	HasWriteScope bool `json:"hasWriteScope"`
+	// MessagingProfile is what the workspace's verification allows.
+	MessagingProfile *BatchPreviewMessagingProfile `json:"messagingProfile,omitempty"`
+	// ByCountry breaks the batch down by destination country code.
+	ByCountry map[string]BatchPreviewCountry `json:"byCountry"`
+	// BlockedMessages lists each message that would not be sent, and why.
+	BlockedMessages []BatchPreviewBlockedMessage `json:"blockedMessages"`
+	// Compliance reports the content and quiet-hours checks.
+	Compliance *BatchPreviewCompliance `json:"compliance,omitempty"`
+	// Warnings are human-readable notes about the batch.
+	Warnings []string `json:"warnings"`
+}
+
+// BatchPreviewMessagingProfile is what the workspace's verification allows.
+type BatchPreviewMessagingProfile struct {
+	ID                   *string `json:"id"`
+	CanSendDomestic      bool    `json:"canSendDomestic"`
+	CanSendInternational bool    `json:"canSendInternational"`
+	VerificationStatus   *string `json:"verificationStatus"`
+	VerificationType     *string `json:"verificationType"`
+}
+
+// BatchPreviewCountry is the part of a batch going to one country.
+type BatchPreviewCountry struct {
+	// Count is the number of messages to the country.
+	Count int `json:"count"`
+	// Credits is the credits the sendable messages to the country need.
+	Credits int `json:"credits"`
+	// Tier is the country's pricing tier.
+	Tier string `json:"tier"`
+	// Allowed is false when messages to the country are blocked.
+	Allowed bool `json:"allowed"`
+	// BlockedReason says why messages to the country are blocked.
+	BlockedReason string `json:"blockedReason,omitempty"`
+}
+
+// BatchPreviewBlockedMessage is a message a batch preview found would not be
+// sent.
+type BatchPreviewBlockedMessage struct {
+	// Index is the message's position in the request.
+	Index int `json:"index"`
+	// To is the recipient.
+	To string `json:"to"`
+	// Reason says why the message would not be sent.
+	Reason string `json:"reason"`
+}
+
+// BatchPreviewCompliance reports the content and quiet-hours checks of a
+// batch preview.
+type BatchPreviewCompliance struct {
+	// MessageType is the message type the checks applied: "marketing" or
+	// "transactional".
+	MessageType string `json:"messageType"`
+	// OptedOutBlocked is the number of messages to recipients who opted out.
+	OptedOutBlocked int `json:"optedOutBlocked"`
+	// ShaftBlocked is the number of messages blocked for restricted content.
+	ShaftBlocked int `json:"shaftBlocked"`
+	// QuietHoursBlocked is reported as 0: quiet hours hold marketing
+	// messages rather than block them. See QuietHoursRescheduled.
+	QuietHoursBlocked int `json:"quietHoursBlocked"`
+	// QuietHoursRescheduled is the number of marketing messages that would
+	// be held until the recipient's quiet hours end.
+	QuietHoursRescheduled int `json:"quietHoursRescheduled"`
+	// ShaftBlockedMessages lists the messages blocked for restricted content.
+	ShaftBlockedMessages []BatchPreviewShaftBlock `json:"shaftBlockedMessages"`
+	// QuietHoursBlockedMessages lists the messages that fall in the
+	// recipient's quiet hours.
+	QuietHoursBlockedMessages []BatchPreviewQuietHoursBlock `json:"quietHoursBlockedMessages"`
+}
+
+// BatchPreviewShaftBlock is a message blocked for restricted content.
+type BatchPreviewShaftBlock struct {
+	Index        int      `json:"index"`
+	To           string   `json:"to"`
+	Category     string   `json:"category"`
+	MatchedTerms []string `json:"matchedTerms"`
+}
+
+// BatchPreviewQuietHoursBlock is a message that falls in the recipient's
+// quiet hours.
+type BatchPreviewQuietHoursBlock struct {
+	Index              int     `json:"index"`
+	To                 string  `json:"to"`
+	RecipientTimezone  string  `json:"recipientTimezone"`
+	RecipientLocalTime string  `json:"recipientLocalTime"`
+	NextAllowedTime    *string `json:"nextAllowedTime,omitempty"`
+}
+
+const maxBatchMessages = 10000
+
+// UnmarshalJSON decodes a batch preview and fills the older field names
+// (TotalMessages, WillSend, CurrentBalance, HasEnoughCredits), CanSend and
+// BlockReasons from what the API sends.
+func (p *BatchPreviewResponse) UnmarshalJSON(data []byte) error {
+	type batchPreviewResponseAlias BatchPreviewResponse
+	var raw batchPreviewResponseAlias
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	*p = BatchPreviewResponse(raw)
+	if p.TotalMessages == 0 {
+		p.TotalMessages = p.Total
+	}
+	if p.WillSend == 0 {
+		p.WillSend = p.Sendable
+	}
+	if p.CurrentBalance == 0 {
+		p.CurrentBalance = p.CreditBalance
+	}
+	if !p.HasEnoughCredits {
+		p.HasEnoughCredits = p.HasSufficientCredits
+	}
+	if !p.CanSend {
+		optedOut := 0
+		if p.Compliance != nil {
+			optedOut = p.Compliance.OptedOutBlocked
+		}
+		p.CanSend = p.Sendable > 0 &&
+			p.Total <= maxBatchMessages &&
+			p.Blocked == optedOut &&
+			p.HasWriteScope &&
+			(p.KeyType == "test" || p.HasSufficientCredits)
+	}
+	if p.BlockReasons == nil && len(p.BlockedMessages) > 0 {
+		p.BlockReasons = make(map[string]int)
+		for _, blocked := range p.BlockedMessages {
+			p.BlockReasons[blocked.Reason]++
+		}
+	}
+	return nil
 }
 
 // ============================================================================
@@ -871,7 +1173,9 @@ type WebhookDelivery struct {
 	Status DeliveryStatus `json:"status"`
 	// ResponseStatusCode is the HTTP response status code.
 	ResponseStatusCode *int `json:"responseStatusCode,omitempty"`
-	// ResponseTimeMs is the response time in milliseconds.
+	// ResponseTimeMs is how long the endpoint took to respond, in
+	// milliseconds. It is nil when no response was received, for example on
+	// a timeout or a failed connection.
 	ResponseTimeMs *int `json:"responseTimeMs,omitempty"`
 	// ErrorMessage is the error message if failed.
 	ErrorMessage *string `json:"errorMessage,omitempty"`
@@ -895,18 +1199,87 @@ type WebhookTestResult struct {
 	ResponseTimeMs *int `json:"responseTimeMs,omitempty"`
 	// Error is the error message if failed.
 	Error *string `json:"error,omitempty"`
+	// Message describes the outcome, for example "Test webhook delivered
+	// successfully in 87ms".
+	Message string `json:"message,omitempty"`
+	// Delivery is the test delivery that was made.
+	Delivery *WebhookTestDelivery `json:"delivery,omitempty"`
+}
+
+// WebhookTestDelivery is the delivery a webhook test made.
+type WebhookTestDelivery struct {
+	// ID is the delivery identifier.
+	ID string `json:"id"`
+	// WebhookURL is the URL the test event was sent to.
+	WebhookURL string `json:"webhook_url"`
+	// EventType is "webhook.test".
+	EventType string `json:"event_type"`
+	// Status is "delivered" or "failed".
+	Status string `json:"status"`
+	// ResponseTimeMs is how long your endpoint took to answer, in
+	// milliseconds.
+	ResponseTimeMs *int `json:"response_time,omitempty"`
+	// StatusCode is the HTTP status your endpoint answered with.
+	StatusCode *int `json:"status_code,omitempty"`
+	// ResponseBody is the start of your endpoint's response body.
+	ResponseBody *string `json:"response_body,omitempty"`
+	// Error is why the delivery failed.
+	Error *string `json:"error,omitempty"`
+	// DeliveredAt is when the test event was delivered.
+	DeliveredAt *string `json:"delivered_at,omitempty"`
+}
+
+// UnmarshalJSON decodes a test result and fills StatusCode, ResponseTimeMs
+// and Error from the test delivery, where the API reports them.
+func (r *WebhookTestResult) UnmarshalJSON(data []byte) error {
+	type webhookTestResultAlias WebhookTestResult
+	var raw webhookTestResultAlias
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	*r = WebhookTestResult(raw)
+	if r.Delivery == nil {
+		return nil
+	}
+	if r.StatusCode == nil && r.Delivery.StatusCode != nil {
+		statusCode := *r.Delivery.StatusCode
+		r.StatusCode = &statusCode
+	}
+	if r.ResponseTimeMs == nil && r.Delivery.ResponseTimeMs != nil {
+		responseTime := *r.Delivery.ResponseTimeMs
+		r.ResponseTimeMs = &responseTime
+	}
+	if r.Error == nil && r.Delivery.Error != nil {
+		deliveryError := *r.Delivery.Error
+		r.Error = &deliveryError
+	}
+	return nil
 }
 
 // WebhookSecretRotation is the response from rotating a webhook secret.
 type WebhookSecretRotation struct {
-	// Webhook is the updated webhook.
+	// Webhook carries only the webhook's ID: the rotation response does not
+	// include the rest of the webhook. Call Get for it.
 	Webhook Webhook `json:"webhook"`
-	// NewSecret is the new signing secret.
+	// NewSecret is the new signing secret. It is shown only once.
 	NewSecret string `json:"newSecret"`
-	// OldSecretExpiresAt is when the old secret expires.
+	// OldSecretExpiresAt is always empty.
+	//
+	// Deprecated: the API does not keep the old secret. Deliveries are signed
+	// with the new secret as soon as the rotation returns.
 	OldSecretExpiresAt string `json:"oldSecretExpiresAt"`
-	// Message is information about the grace period.
+	// Message is a human-readable summary of the rotation.
 	Message string `json:"message"`
+	// RotatedAt is when the secret was rotated.
+	RotatedAt string `json:"rotatedAt,omitempty"`
+	// GracePeriodHours is the grace period the API reports. Deliveries are
+	// signed with the new secret as soon as the rotation returns, so have
+	// your endpoint accept both secrets while you deploy the new one.
+	GracePeriodHours int `json:"gracePeriodHours,omitempty"`
+	// NewSecretVersion is the webhook's secret version as the API reports
+	// it. A rotation through the API leaves it unchanged.
+	NewSecretVersion int `json:"newSecretVersion,omitempty"`
 }
 
 // ============================================================================
@@ -930,23 +1303,38 @@ type Account struct {
 
 // Credits represents credit balance information.
 type Credits struct {
-	// Balance is the available credit balance.
+	// Balance is the credit balance, before reservations. A workspace on a
+	// pooled enterprise plan reports the pool's balance, which can fall below
+	// zero while overage is allowed.
 	Balance int `json:"balance"`
 	// ReservedBalance is credits reserved for scheduled messages.
 	ReservedBalance int `json:"reservedBalance"`
 	// AvailableBalance is the total usable credits.
 	AvailableBalance int `json:"availableBalance"`
+	// BillingMode is "prepaid", or "pooled" when the workspace draws on its
+	// enterprise credit pool.
+	BillingMode string `json:"billingMode,omitempty"`
 }
 
 // TransactionType represents a credit transaction type.
 type TransactionType string
 
 const (
-	TransactionTypePurchase   TransactionType = "purchase"
-	TransactionTypeUsage      TransactionType = "usage"
-	TransactionTypeRefund     TransactionType = "refund"
+	TransactionTypePurchase TransactionType = "purchase"
+	TransactionTypeUsage    TransactionType = "usage"
+	TransactionTypeRefund   TransactionType = "refund"
+	// TransactionTypeAdjustment is never recorded.
+	//
+	// Deprecated: no transaction has this type.
 	TransactionTypeAdjustment TransactionType = "adjustment"
 	TransactionTypeBonus      TransactionType = "bonus"
+	// TransactionTypeTransfer is credits moved between workspaces: negative
+	// on the workspace they left, positive on the one they reached.
+	TransactionTypeTransfer TransactionType = "transfer"
+	// TransactionTypeAdminGrant is credits added to the account by Sendly.
+	TransactionTypeAdminGrant TransactionType = "admin_grant"
+	// TransactionTypeAdminSeed is test credits added to the account by Sendly.
+	TransactionTypeAdminSeed TransactionType = "admin_seed"
 )
 
 // CreditTransaction represents a credit transaction record.
@@ -961,7 +1349,8 @@ type CreditTransaction struct {
 	BalanceAfter int `json:"balanceAfter"`
 	// Description is the transaction description.
 	Description string `json:"description"`
-	// MessageID is the related message ID (for usage transactions).
+	// MessageID is always nil: the transaction list does not say which
+	// message a transaction belongs to.
 	MessageID *string `json:"messageId,omitempty"`
 	// CreatedAt is when the transaction occurred.
 	CreatedAt string `json:"createdAt"`
@@ -1147,6 +1536,28 @@ type InheritVerificationResponse struct {
 	Type           string  `json:"type"`
 	TollFreeNumber *string `json:"tollFreeNumber,omitempty"`
 	InheritedFrom  string  `json:"inheritedFrom"`
+	// NewNumber is true when the request set
+	// InheritVerificationRequest.PurchaseNewNumber. It does not mean a number
+	// was bought: TollFreeNumber is nil when none could be, and Status is
+	// "submitted" only once that number's toll-free verification was filed.
+	NewNumber bool `json:"newNumber,omitempty"`
+}
+
+// InheritVerificationRequest is the request for
+// WorkspacesService.InheritVerificationWithOptions.
+type InheritVerificationRequest struct {
+	// SourceWorkspaceID is the workspace whose verification is inherited
+	// (required).
+	SourceWorkspaceID string `json:"sourceWorkspaceId"`
+	// PurchaseNewNumber gives the workspace a toll-free verification of its
+	// own instead of sharing the source workspace's approval. The business
+	// details are copied, then Sendly tries to buy the workspace a toll-free
+	// number and file that number's toll-free verification. Both steps are
+	// best effort: in the response, TollFreeNumber is nil when no number
+	// could be bought, and Status stays "pending" unless the verification
+	// was filed, which needs opt-in images and a valid business registration
+	// number in the copied details. Check its progress with GetVerification.
+	PurchaseNewNumber bool `json:"purchaseNewNumber,omitempty"`
 }
 
 type VerificationStatusResponse struct {
@@ -1284,6 +1695,30 @@ type ProvisionWorkspaceResponse struct {
 
 type EnterpriseWebhook struct {
 	URL string `json:"url"`
+	// Events is the event types delivered. Empty means every event.
+	Events []string `json:"events,omitempty"`
+	// Workspaces is the workspace IDs whose events are delivered. Empty
+	// means every workspace.
+	Workspaces []string `json:"workspaces,omitempty"`
+	// SigningSecret is the secret deliveries are signed with. It is returned
+	// only once, by the account's first Set or SetWithOptions (deleting the
+	// webhook keeps the secret); store it then. Later calls leave it empty.
+	// RotateSecret issues a new one.
+	SigningSecret string `json:"signingSecret,omitempty"`
+}
+
+// SetEnterpriseWebhookRequest is the request for
+// EnterpriseWebhooksService.SetWithOptions.
+type SetEnterpriseWebhookRequest struct {
+	// URL is the HTTPS endpoint that receives the events (required).
+	URL string `json:"url"`
+	// Events limits deliveries to these event types. Nil leaves the current
+	// list unchanged; an empty, non-nil slice clears it, so every event is
+	// delivered.
+	Events []string `json:"events"`
+	// Workspaces limits deliveries to events from these workspace IDs. Nil
+	// leaves the current list unchanged; an empty, non-nil slice clears it.
+	Workspaces []string `json:"workspaces"`
 }
 
 type EnterpriseWebhookTestResult struct {
@@ -1304,9 +1739,57 @@ type AnalyticsOverview struct {
 	TotalMessages     int `json:"totalMessages"`
 	DeliveredMessages int `json:"deliveredMessages"`
 	FailedMessages    int `json:"failedMessages"`
-	DeliveryRate      int `json:"deliveryRate"`
-	TotalCreditsUsed  int `json:"totalCreditsUsed"`
-	ActiveWorkspaces  int `json:"activeWorkspaces"`
+	// DeliveryRate is the delivery rate as a percentage, rounded to a whole
+	// number.
+	//
+	// Deprecated: the API reports the rate to two decimal places; use
+	// DeliveryRatePercent. DeliveryRate becomes a float64 in the next major
+	// version.
+	DeliveryRate     int `json:"deliveryRate"`
+	TotalCreditsUsed int `json:"totalCreditsUsed"`
+	ActiveWorkspaces int `json:"activeWorkspaces"`
+	// DeliveryRatePercent is the share of messages delivered, as a
+	// percentage with two decimal places (for example 97.37).
+	DeliveryRatePercent float64 `json:"deliveryRatePercent,omitempty"`
+	// TotalWorkspaces is the number of workspaces, suspended ones included.
+	TotalWorkspaces int `json:"totalWorkspaces"`
+	// SuspendedWorkspaces is the number of suspended workspaces.
+	SuspendedWorkspaces int `json:"suspendedWorkspaces"`
+	// TotalDelivered is the number of messages delivered, the same value as
+	// DeliveredMessages.
+	TotalDelivered int `json:"totalDelivered"`
+	// TotalFailed is the number of messages that failed, the same value as
+	// FailedMessages.
+	TotalFailed int `json:"totalFailed"`
+	// TotalCredits is the combined credit balance of the workspaces.
+	TotalCredits int `json:"totalCredits"`
+}
+
+// UnmarshalJSON decodes an overview whose deliveryRate has decimal places,
+// keeping the exact value in DeliveryRatePercent and the rounded one in
+// DeliveryRate.
+func (o *AnalyticsOverview) UnmarshalJSON(data []byte) error {
+	type analyticsOverviewAlias AnalyticsOverview
+	var raw struct {
+		analyticsOverviewAlias
+		DeliveryRate float64 `json:"deliveryRate"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	*o = AnalyticsOverview(raw.analyticsOverviewAlias)
+	o.DeliveryRate = int(math.Round(raw.DeliveryRate))
+	if o.DeliveryRatePercent == 0 {
+		o.DeliveryRatePercent = raw.DeliveryRate
+	}
+	if o.DeliveredMessages == 0 {
+		o.DeliveredMessages = o.TotalDelivered
+	}
+	if o.FailedMessages == 0 {
+		o.FailedMessages = o.TotalFailed
+	}
+	return nil
 }
 
 type AnalyticsMessagesOptions struct {
@@ -1339,6 +1822,10 @@ type AnalyticsCreditsOptions struct {
 	Period string
 }
 
+// AnalyticsCreditDay is one day of a daily credit series.
+//
+// Deprecated: the credits analytics endpoint returns totals, not a daily
+// series. Read the totals on AnalyticsCreditsResponse.
 type AnalyticsCreditDay struct {
 	Date        string `json:"date"`
 	Used        int    `json:"used"`
@@ -1346,9 +1833,25 @@ type AnalyticsCreditDay struct {
 	Purchased   int    `json:"purchased"`
 }
 
+// AnalyticsCreditsResponse is the combined credit position of the
+// enterprise's workspaces.
 type AnalyticsCreditsResponse struct {
-	Period string               `json:"period"`
-	Data   []AnalyticsCreditDay `json:"data"`
+	// Period is the period that was requested ("30d" by default). The totals
+	// are not limited to it.
+	Period string `json:"period"`
+	// Data is always empty.
+	//
+	// Deprecated: the endpoint returns totals, not a daily series. Use
+	// TotalBalance, TotalLifetime, TotalUsed and WorkspaceCount.
+	Data []AnalyticsCreditDay `json:"data"`
+	// TotalBalance is the workspaces' combined credit balance.
+	TotalBalance int `json:"totalBalance"`
+	// TotalLifetime is the credits the workspaces have ever received.
+	TotalLifetime int `json:"totalLifetime"`
+	// TotalUsed is TotalLifetime minus TotalBalance.
+	TotalUsed int `json:"totalUsed"`
+	// WorkspaceCount is the number of workspaces counted.
+	WorkspaceCount int `json:"workspaceCount"`
 }
 
 type OptInPage struct {
@@ -1858,9 +2361,9 @@ type ConversationContextBusiness struct {
 // ConversationContextResponse is the response from getting conversation context.
 type ConversationContextResponse struct {
 	Context       string                       `json:"context"`
-	Conversation  ConversationContextInfo       `json:"conversation"`
-	TokenEstimate int                           `json:"tokenEstimate"`
-	Business      *ConversationContextBusiness  `json:"business,omitempty"`
+	Conversation  ConversationContextInfo      `json:"conversation"`
+	TokenEstimate int                          `json:"tokenEstimate"`
+	Business      *ConversationContextBusiness `json:"business,omitempty"`
 }
 
 // GetConversationContextRequest is the request to get conversation context.

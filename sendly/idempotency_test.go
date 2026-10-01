@@ -262,7 +262,7 @@ func TestIdempotency_KeyReusedAcrossNetworkErrorRetry(t *testing.T) {
 	}
 }
 
-func TestIdempotency_KeyRotatedAfter5xx(t *testing.T) {
+func TestIdempotency_KeyKeptAcross5xxRetry(t *testing.T) {
 	attempts := 0
 	var keys []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -292,12 +292,12 @@ func TestIdempotency_KeyRotatedAfter5xx(t *testing.T) {
 	if keys[0] == "" || keys[1] == "" {
 		t.Fatal("expected a key on both attempts")
 	}
-	if keys[0] == keys[1] {
-		t.Errorf("expected key to be rotated after a 5xx response, got '%s' twice", keys[0])
+	if keys[0] != keys[1] {
+		t.Errorf("expected the key to be kept across a 5xx retry, got '%s' then '%s'", keys[0], keys[1])
 	}
 }
 
-func TestIdempotency_RotatedKeyKeptAcrossSubsequentNetworkError(t *testing.T) {
+func TestIdempotency_KeyKeptAcross5xxThenNetworkError(t *testing.T) {
 	attempts := 0
 	var keys []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -327,11 +327,8 @@ func TestIdempotency_RotatedKeyKeptAcrossSubsequentNetworkError(t *testing.T) {
 	if attempts != 3 {
 		t.Fatalf("expected 3 attempts, got %d", attempts)
 	}
-	if keys[1] == keys[0] {
-		t.Errorf("expected key to be rotated after the 5xx, got '%s' twice", keys[0])
-	}
-	if keys[2] != keys[1] {
-		t.Errorf("expected rotated key to be kept across the network error, got '%s' then '%s'", keys[1], keys[2])
+	if keys[1] != keys[0] || keys[2] != keys[0] {
+		t.Errorf("expected one key across the 5xx and the network error, got '%s', '%s', '%s'", keys[0], keys[1], keys[2])
 	}
 }
 

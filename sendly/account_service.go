@@ -3,6 +3,7 @@ package sendly
 import (
 	"context"
 	"encoding/json"
+	"net/url"
 	"reflect"
 	"strconv"
 )
@@ -23,11 +24,12 @@ type accountAPIResponse struct {
 	} `json:"user"`
 }
 
-// creditsAPIResponse is the API response with snake_case fields.
+// creditsAPIResponse is the API response with camelCase fields.
 type creditsAPIResponse struct {
-	Balance          int `json:"balance"`
-	ReservedBalance  int `json:"reserved_balance"`
-	AvailableBalance int `json:"available_balance"`
+	Balance          int    `json:"balance"`
+	ReservedBalance  int    `json:"reservedBalance"`
+	AvailableBalance int    `json:"availableBalance"`
+	BillingMode      string `json:"billingMode"`
 }
 
 // transactionAPIResponse is the API response with snake_case fields.
@@ -47,6 +49,7 @@ type apiKeyAPIResponse struct {
 	Name       string   `json:"name"`
 	Type       string   `json:"type"`
 	Prefix     string   `json:"prefix"`
+	KeyPrefix  string   `json:"keyPrefix"`
 	Scopes     []string `json:"scopes"`
 	IsActive   bool     `json:"isActive"`
 	CreatedAt  string   `json:"createdAt"`
@@ -56,11 +59,15 @@ type apiKeyAPIResponse struct {
 }
 
 func (a apiKeyAPIResponse) toAPIKey() APIKey {
+	prefix := a.Prefix
+	if prefix == "" && a.KeyPrefix != "" {
+		prefix = a.KeyPrefix + "..."
+	}
 	return APIKey{
 		ID:          a.ID,
 		Name:        a.Name,
 		Type:        a.Type,
-		Prefix:      a.Prefix,
+		Prefix:      prefix,
 		Permissions: a.Scopes,
 		CreatedAt:   a.CreatedAt,
 		LastUsedAt:  a.LastUsedAt,
@@ -101,6 +108,7 @@ func (s *AccountService) GetCredits(ctx context.Context) (*Credits, error) {
 		Balance:          apiResp.Balance,
 		ReservedBalance:  apiResp.ReservedBalance,
 		AvailableBalance: apiResp.AvailableBalance,
+		BillingMode:      apiResp.BillingMode,
 	}, nil
 }
 
@@ -196,7 +204,7 @@ func (s *AccountService) GetAPIKey(ctx context.Context, keyID string) (*APIKey, 
 	}
 
 	var apiResp apiKeyAPIResponse
-	if err := s.client.request(ctx, "GET", "/account/keys/"+keyID, nil, &apiResp); err != nil {
+	if err := s.client.request(ctx, "GET", "/account/keys/"+url.PathEscape(keyID), nil, &apiResp); err != nil {
 		return nil, err
 	}
 
@@ -289,15 +297,16 @@ func (s *AccountService) GetAPIKeyUsage(ctx context.Context, keyID string) (*API
 	}
 
 	var usage APIKeyUsage
-	if err := s.client.request(ctx, "GET", "/account/keys/"+keyID+"/usage", nil, &usage); err != nil {
+	if err := s.client.request(ctx, "GET", "/account/keys/"+url.PathEscape(keyID)+"/usage", nil, &usage); err != nil {
 		return nil, err
 	}
 	return &usage, nil
 }
 
-// CreateAPIKeyRequest is the request to create a new API key. Type is
-// required by the API and must be "test" or "live"; leave it empty to create
-// a test key. Scopes defaults to the standard set when omitted.
+// CreateAPIKeyRequest is the request to create a new API key. Type must be
+// "test" or "live"; leave it empty to create a test key. Leave Scopes nil to
+// give the new key the scopes of the key making the request; asking for a
+// scope that key does not have is refused with a 403 insufficient_permissions.
 type CreateAPIKeyRequest struct {
 	Name      string   `json:"name"`
 	Type      string   `json:"type"`
@@ -313,11 +322,16 @@ type CreateAPIKeyResponse struct {
 	KeyPrefix string `json:"keyPrefix"`
 	Type      string `json:"type"`
 	CreatedAt string `json:"createdAt"`
+	// ExpiresAt is when the key expires, or nil for a key that never expires.
+	ExpiresAt *string `json:"expiresAt,omitempty"`
 
-	// APIKey mirrors the flat fields above. Permissions and LastFour are
-	// not returned when a key is created and stay empty.
+	// APIKey is the created key as the API describes it, including its
+	// Permissions: the scopes it was granted, which the API limits to the
+	// scopes of the key that created it. LastFour stays empty. When the API
+	// sends only the flat fields, APIKey mirrors them.
 	//
-	// Deprecated: use ID, Name, Type, KeyPrefix and CreatedAt directly.
+	// Deprecated: use ID, Name, Type, KeyPrefix, CreatedAt and ExpiresAt
+	// directly, and Account.GetAPIKey for the key's permissions.
 	APIKey APIKey `json:"apiKey"`
 }
 
@@ -338,6 +352,7 @@ func (r *CreateAPIKeyResponse) UnmarshalJSON(data []byte) error {
 			Type:      r.Type,
 			Prefix:    r.KeyPrefix,
 			CreatedAt: r.CreatedAt,
+			ExpiresAt: r.ExpiresAt,
 		}
 	}
 	return nil
@@ -375,7 +390,7 @@ func (s *AccountService) RevokeAPIKey(ctx context.Context, keyID string) error {
 		return &ValidationError{APIError: APIError{Message: "API key ID is required"}}
 	}
 
-	return s.client.request(ctx, "PATCH", "/account/keys/"+keyID+"/revoke", nil, nil)
+	return s.client.request(ctx, "PATCH", "/account/keys/"+url.PathEscape(keyID)+"/revoke", nil, nil)
 }
 
 // RotateAPIKeyRequest is the body for RotateAPIKey. GracePeriodHours keeps the
@@ -425,9 +440,25 @@ func (s *AccountService) RotateAPIKey(ctx context.Context, keyID string, req *Ro
 		body = req
 	}
 
-	var resp RotateAPIKeyResponse
-	if err := s.client.request(ctx, "POST", "/account/keys/"+keyID+"/rotate", body, &resp); err != nil {
+	var apiResp struct {
+		NewKey struct {
+			apiKeyAPIResponse
+			Key     string `json:"key"`
+			Warning string `json:"warning"`
+		} `json:"newKey"`
+		OldKey  apiKeyAPIResponse `json:"oldKey"`
+		Message string            `json:"message"`
+	}
+	if err := s.client.request(ctx, "POST", "/account/keys/"+url.PathEscape(keyID)+"/rotate", body, &apiResp); err != nil {
 		return nil, err
 	}
-	return &resp, nil
+	return &RotateAPIKeyResponse{
+		NewKey: RotatedAPIKey{
+			APIKey:  apiResp.NewKey.toAPIKey(),
+			Key:     apiResp.NewKey.Key,
+			Warning: apiResp.NewKey.Warning,
+		},
+		OldKey:  apiResp.OldKey.toAPIKey(),
+		Message: apiResp.Message,
+	}, nil
 }

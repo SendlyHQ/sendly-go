@@ -34,6 +34,20 @@ const (
 	CallKindInternal CallKind = "internal"
 )
 
+// CallChannel is the network a call runs over, serialized as channel. The
+// type is a plain string, so a channel added later decodes as its own value.
+type CallChannel string
+
+const (
+	// CallChannelPhone is a call over the phone network.
+	CallChannelPhone CallChannel = "phone"
+	// CallChannelWhatsApp is a WhatsApp call to or from a number with
+	// WhatsApp calling on.
+	CallChannelWhatsApp CallChannel = "whatsapp"
+	// CallChannelBrowser is a browser-to-browser call between teammates.
+	CallChannelBrowser CallChannel = "browser"
+)
+
 // CallDirection is who placed the call, serialized as direction.
 type CallDirection string
 
@@ -139,6 +153,9 @@ const (
 	// CallErrorCodeFromNumberRequired (400, *ValidationError): the workspace
 	// has more than one voice-enabled number, so From must be given.
 	CallErrorCodeFromNumberRequired = "from_number_required"
+	// CallErrorCodeFromNumberNotSupported (400, *ValidationError): calls can
+	// only be placed from US and Canadian numbers.
+	CallErrorCodeFromNumberNotSupported = "from_number_not_supported"
 	// CallErrorCodeNoVoiceNumber (409, *SendlyError): no number in the
 	// workspace has voice enabled.
 	CallErrorCodeNoVoiceNumber = "no_voice_number"
@@ -182,6 +199,10 @@ type Call struct {
 	Object string `json:"object"`
 	// Kind is "pstn" for a phone call, "internal" for a teammate call.
 	Kind CallKind `json:"kind"`
+	// Channel is "phone", "whatsapp" or "browser"; see CallChannel. A
+	// WhatsApp call has Kind "pstn". Inbound WhatsApp calls may still read
+	// "phone" for now.
+	Channel CallChannel `json:"channel,omitempty"`
 	// Direction is "inbound" or "outbound".
 	Direction CallDirection `json:"direction"`
 	// Status is where the call stands; see CallStatus.
@@ -323,6 +344,7 @@ type WebhookCallData struct {
 	ID              string               `json:"id"`
 	Object          string               `json:"object"`
 	Kind            CallKind             `json:"kind"`
+	Channel         CallChannel          `json:"channel,omitempty"`
 	Direction       CallDirection        `json:"direction"`
 	Status          CallStatus           `json:"status"`
 	HandledBy       CallHandledBy        `json:"handled_by"`

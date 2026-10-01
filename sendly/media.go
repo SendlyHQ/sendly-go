@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"path/filepath"
+	"strings"
 )
 
 // MediaService handles media upload operations.
@@ -17,7 +20,12 @@ type MediaService struct {
 	client *Client
 }
 
-// Upload uploads a media file for use in MMS messages.
+// Upload uploads a JPEG, PNG or GIF image (up to 600 KB) for use in MMS
+// messages. The file is labelled with the type its content shows, or failing
+// that the type its filename's extension names. Any other type, or a larger
+// file, is refused with a *SendlyError (HTTP 500); a file whose content is not
+// the image type it is labelled with is refused with a *ValidationError (code
+// invalid_file).
 func (s *MediaService) Upload(ctx context.Context, filename string, file io.Reader) (*MediaFile, error) {
 	if file == nil {
 		return nil, &ValidationError{APIError: APIError{Message: "file is required"}}
@@ -33,12 +41,17 @@ func (s *MediaService) Upload(ctx context.Context, filename string, file io.Read
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
-	part, err := writer.CreateFormFile("file", filepath.Base(filename))
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, &NetworkError{Message: "failed to write file data", Err: err}
+	}
+
+	part, err := createFilePart(writer, "file", filepath.Base(filename), data)
 	if err != nil {
 		return nil, &NetworkError{Message: "failed to create form file", Err: err}
 	}
 
-	if _, err := io.Copy(part, file); err != nil {
+	if _, err := part.Write(data); err != nil {
 		return nil, &NetworkError{Message: "failed to write file data", Err: err}
 	}
 
@@ -80,6 +93,27 @@ func (s *MediaService) Upload(ctx context.Context, filename string, file io.Read
 	}
 
 	return &result, nil
+}
+
+var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
+
+func createFilePart(w *multipart.Writer, fieldName, filename string, data []byte) (io.Writer, error) {
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`,
+		quoteEscaper.Replace(fieldName), quoteEscaper.Replace(filename)))
+	h.Set("Content-Type", fileContentType(filename, data))
+	return w.CreatePart(h)
+}
+
+func fileContentType(filename string, data []byte) string {
+	sniffed := http.DetectContentType(data)
+	if sniffed != "application/octet-stream" && !strings.HasPrefix(sniffed, "text/plain") {
+		return sniffed
+	}
+	if byExtension := mime.TypeByExtension(filepath.Ext(filename)); byExtension != "" {
+		return byExtension
+	}
+	return "application/octet-stream"
 }
 
 // Delete deletes an uploaded media file by ID.

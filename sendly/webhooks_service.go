@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -46,7 +47,7 @@ type webhookDeliveryAPIResponse struct {
 	MaxAttempts        int     `json:"max_attempts"`
 	Status             string  `json:"status"`
 	ResponseStatusCode *int    `json:"response_status_code,omitempty"`
-	ResponseTimeMs     *int    `json:"response_time_ms,omitempty"`
+	ResponseTimeMs     *int    `json:"response_time,omitempty"`
 	ErrorMessage       *string `json:"error_message,omitempty"`
 	ErrorCode          *string `json:"error_code,omitempty"`
 	NextRetryAt        *string `json:"next_retry_at,omitempty"`
@@ -144,7 +145,7 @@ func (s *WebhooksService) Get(ctx context.Context, webhookID string) (*Webhook, 
 	}
 
 	var apiResp webhookAPIResponse
-	if err := s.client.request(ctx, "GET", "/webhooks/"+webhookID, nil, &apiResp); err != nil {
+	if err := s.client.request(ctx, "GET", "/webhooks/"+url.PathEscape(webhookID), nil, &apiResp); err != nil {
 		return nil, err
 	}
 
@@ -163,7 +164,7 @@ func (s *WebhooksService) Update(ctx context.Context, webhookID string, req Upda
 	}
 
 	var apiResp webhookAPIResponse
-	if err := s.client.request(ctx, "PATCH", "/webhooks/"+webhookID, req, &apiResp); err != nil {
+	if err := s.client.request(ctx, "PATCH", "/webhooks/"+url.PathEscape(webhookID), req, &apiResp); err != nil {
 		return nil, err
 	}
 
@@ -177,17 +178,19 @@ func (s *WebhooksService) Delete(ctx context.Context, webhookID string) error {
 		return errors.New("invalid webhook ID format")
 	}
 
-	return s.client.request(ctx, "DELETE", "/webhooks/"+webhookID, nil, nil)
+	return s.client.request(ctx, "DELETE", "/webhooks/"+url.PathEscape(webhookID), nil, nil)
 }
 
-// Test sends a test event to a webhook endpoint.
+// Test sends a test event to a webhook endpoint. A test that fails,
+// including one for a webhook that does not exist, comes back as a
+// *ValidationError whose Message says why.
 func (s *WebhooksService) Test(ctx context.Context, webhookID string) (*WebhookTestResult, error) {
 	if webhookID == "" || !strings.HasPrefix(webhookID, "whk_") {
 		return nil, errors.New("invalid webhook ID format")
 	}
 
 	var result WebhookTestResult
-	if err := s.client.request(ctx, "POST", "/webhooks/"+webhookID+"/test", nil, &result); err != nil {
+	if err := s.client.request(ctx, "POST", "/webhooks/"+url.PathEscape(webhookID)+"/test", nil, &result); err != nil {
 		return nil, err
 	}
 
@@ -201,7 +204,7 @@ func (s *WebhooksService) ResetCircuit(ctx context.Context, webhookID string) (m
 	}
 
 	var result map[string]interface{}
-	if err := s.client.request(ctx, "POST", "/webhooks/"+webhookID+"/reset-circuit", nil, &result); err != nil {
+	if err := s.client.request(ctx, "POST", "/webhooks/"+url.PathEscape(webhookID)+"/reset-circuit", nil, &result); err != nil {
 		return nil, err
 	}
 
@@ -256,7 +259,7 @@ func (s *WebhooksService) Redeliver(ctx context.Context, webhookID string, opts 
 	}
 
 	var result RedeliverResult
-	if err := s.client.request(ctx, "POST", "/webhooks/"+webhookID+"/redeliver", body, &result); err != nil {
+	if err := s.client.request(ctx, "POST", "/webhooks/"+url.PathEscape(webhookID)+"/redeliver", body, &result); err != nil {
 		return nil, err
 	}
 
@@ -287,8 +290,9 @@ type BackfillResult struct {
 // Backfill synthesizes webhook deliveries from the underlying message log
 // for events that have no audit row. Use this when a circuit-breaker
 // outage left events with no delivery record (the case Redeliver cannot
-// recover). Synthesized events have fresh IDs — clients should dedupe by
-// event.data.object.id (the message ID).
+// recover). Synthesized message events carry the same event id the original
+// dispatch used, so dedupe on event.id. Do not dedupe on data.object.id: a
+// message's sent and delivered events share it.
 //
 // Rejects with HTTP 409 if the circuit is currently open — call
 // ResetCircuit first.
@@ -303,14 +307,17 @@ func (s *WebhooksService) Backfill(ctx context.Context, webhookID string, opts *
 	}
 
 	var result BackfillResult
-	if err := s.client.request(ctx, "POST", "/webhooks/"+webhookID+"/backfill", body, &result); err != nil {
+	if err := s.client.request(ctx, "POST", "/webhooks/"+url.PathEscape(webhookID)+"/backfill", body, &result); err != nil {
 		return nil, err
 	}
 
 	return &result, nil
 }
 
-// RotateSecret rotates the webhook signing secret.
+// RotateSecret rotates the webhook signing secret. The new secret is in
+// NewSecret and is shown only once. Deliveries are signed with it as soon as
+// the rotation returns, so have your endpoint accept both the old and the new
+// secret while you deploy it.
 func (s *WebhooksService) RotateSecret(ctx context.Context, webhookID string) (*WebhookSecretRotation, error) {
 	if webhookID == "" || !strings.HasPrefix(webhookID, "whk_") {
 		return nil, errors.New("invalid webhook ID format")
@@ -318,37 +325,81 @@ func (s *WebhooksService) RotateSecret(ctx context.Context, webhookID string) (*
 
 	// Raw response with snake_case
 	var rawResp struct {
-		Webhook            webhookAPIResponse `json:"webhook"`
-		NewSecret          string             `json:"new_secret"`
-		OldSecretExpiresAt string             `json:"old_secret_expires_at"`
-		Message            string             `json:"message"`
+		ID                 string `json:"id"`
+		Secret             string `json:"secret"`
+		NewSecret          string `json:"new_secret"`
+		NewSecretVersion   int    `json:"new_secret_version"`
+		GracePeriodHours   int    `json:"grace_period_hours"`
+		RotatedAt          string `json:"rotated_at"`
+		OldSecretExpiresAt string `json:"old_secret_expires_at"`
+		Message            string `json:"message"`
 	}
 
-	if err := s.client.request(ctx, "POST", "/webhooks/"+webhookID+"/rotate-secret", nil, &rawResp); err != nil {
+	if err := s.client.request(ctx, "POST", "/webhooks/"+url.PathEscape(webhookID)+"/rotate-secret", nil, &rawResp); err != nil {
 		return nil, err
 	}
 
-	return &WebhookSecretRotation{
-		Webhook:            transformWebhook(rawResp.Webhook),
+	rotation := &WebhookSecretRotation{
 		NewSecret:          rawResp.NewSecret,
 		OldSecretExpiresAt: rawResp.OldSecretExpiresAt,
 		Message:            rawResp.Message,
-	}, nil
+		RotatedAt:          rawResp.RotatedAt,
+		GracePeriodHours:   rawResp.GracePeriodHours,
+		NewSecretVersion:   rawResp.NewSecretVersion,
+	}
+	if rotation.NewSecret == "" {
+		rotation.NewSecret = rawResp.Secret
+	}
+	rotation.Webhook.ID = rawResp.ID
+	return rotation, nil
 }
 
-// GetDeliveries retrieves delivery history for a webhook.
+// GetDeliveries retrieves the most recent deliveries for a webhook (up to 50,
+// newest first). Use GetDeliveriesWithOptions to page or filter by status.
 func (s *WebhooksService) GetDeliveries(ctx context.Context, webhookID string) ([]WebhookDelivery, error) {
+	return s.GetDeliveriesWithOptions(ctx, webhookID, nil)
+}
+
+// ListWebhookDeliveriesOptions are options for GetDeliveriesWithOptions.
+type ListWebhookDeliveriesOptions struct {
+	// Limit is the maximum number of deliveries to return (default 50, max 100).
+	Limit int
+	// Offset is the number of deliveries to skip.
+	Offset int
+	// Status filters by delivery status.
+	Status DeliveryStatus
+}
+
+// GetDeliveriesWithOptions retrieves delivery history for a webhook, newest
+// first. Pass nil opts for the defaults.
+func (s *WebhooksService) GetDeliveriesWithOptions(ctx context.Context, webhookID string, opts *ListWebhookDeliveriesOptions) ([]WebhookDelivery, error) {
 	if webhookID == "" || !strings.HasPrefix(webhookID, "whk_") {
 		return nil, errors.New("invalid webhook ID format")
 	}
 
-	var apiResp []webhookDeliveryAPIResponse
-	if err := s.client.request(ctx, "GET", "/webhooks/"+webhookID+"/deliveries", nil, &apiResp); err != nil {
+	params := make(map[string]string)
+	if opts != nil {
+		if opts.Limit > 0 {
+			params["limit"] = strconv.Itoa(opts.Limit)
+		}
+		if opts.Offset > 0 {
+			params["offset"] = strconv.Itoa(opts.Offset)
+		}
+		if opts.Status != "" {
+			params["status"] = string(opts.Status)
+		}
+	}
+
+	var apiResp struct {
+		Deliveries []webhookDeliveryAPIResponse `json:"deliveries"`
+	}
+	path := "/webhooks/" + url.PathEscape(webhookID) + "/deliveries" + buildQueryString(params)
+	if err := s.client.request(ctx, "GET", path, nil, &apiResp); err != nil {
 		return nil, err
 	}
 
-	deliveries := make([]WebhookDelivery, len(apiResp))
-	for i, api := range apiResp {
+	deliveries := make([]WebhookDelivery, len(apiResp.Deliveries))
+	for i, api := range apiResp.Deliveries {
 		deliveries[i] = transformDelivery(api)
 	}
 	return deliveries, nil

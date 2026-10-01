@@ -40,10 +40,32 @@ func (s *MessagesService) SendWithOptions(ctx context.Context, req *SendMessageR
 // SendWhatsApp sends a WhatsApp message: free-form text, media with an
 // optional caption, or an approved template.
 //
-// Requires a live API key and a From number with an active WhatsApp
-// connection (see client.WhatsApp.Signup). Free-form Text and media only
+// Requires the sms:send scope (not whatsapp:write), a live API key and a
+// From number with an active WhatsApp connection (see
+// client.WhatsApp.Signup). WhatsApp is enabled per person (the user who owns
+// the API key, not the workspace); while it is off the API answers 403
+// whatsapp_not_enabled, and a test key gets 403 whatsapp_requires_live_key.
+// Free-form Text and media only
 // deliver inside an open 24-hour customer-service window — outside it, send
 // an approved Template instead (check with client.WhatsApp.Window).
+//
+// A failed send is one of three errors:
+//   - 422 whatsapp_send_failed (*ValidationError): WhatsApp refused the
+//     message, and nothing was charged. It is final and not retried; the
+//     API caches it under the idempotency key and replays it for 24 hours.
+//   - 502 whatsapp_send_failed (*SendlyError): the message provably never
+//     reached the carrier, so it was not sent and is safe to send again.
+//     Nothing was charged. It is never cached, so the client retries it
+//     like any 5xx under the same idempotency key.
+//   - 409 whatsapp_send_unconfirmed (*SendlyError): the outcome is unknown.
+//     The message was marked failed and refunded but may still be
+//     delivered, so check before sending it again (it could arrive twice).
+//     It is not retried automatically, and it is cached under the
+//     idempotency key like any 4xx.
+//
+// The codes are WhatsAppErrorCodeSendFailed and
+// WhatsAppErrorCodeSendUnconfirmed. No send returns 503
+// whatsapp_unavailable.
 func (s *MessagesService) SendWhatsApp(ctx context.Context, req *SendWhatsAppMessageRequest) (*WhatsAppMessage, error) {
 	return s.SendWhatsAppWithOptions(ctx, req)
 }

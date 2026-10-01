@@ -29,6 +29,12 @@ type RateLimitError struct {
 }
 
 func (e *RateLimitError) Error() string {
+	if e.Code != "" && (!retryableRateLimit(e.Code) || e.RetryAfter > maxRetryWaitSeconds) {
+		if e.RetryAfter > 0 {
+			return fmt.Sprintf("sendly: %s (code: %s, retry after %d seconds)", e.Message, e.Code, e.RetryAfter)
+		}
+		return fmt.Sprintf("sendly: %s (code: %s)", e.Message, e.Code)
+	}
 	if e.RetryAfter > 0 {
 		return fmt.Sprintf("sendly: rate limit exceeded, retry after %d seconds", e.RetryAfter)
 	}

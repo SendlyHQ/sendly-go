@@ -16,11 +16,12 @@ type requestConfig struct {
 	idempotencyKey     string
 	autoIdempotencyKey bool
 	retryServerErrors  bool
+	retryNetworkErrors bool
 }
 
 // newRequestConfig applies options over the default configuration.
 func newRequestConfig(opts []RequestOption) requestConfig {
-	cfg := requestConfig{autoIdempotencyKey: true, retryServerErrors: true}
+	cfg := requestConfig{autoIdempotencyKey: true, retryServerErrors: true, retryNetworkErrors: true}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
@@ -36,10 +37,10 @@ func newRequestConfig(opts []RequestOption) requestConfig {
 // retry loops — repeating a request with the same key within 24 hours
 // returns the original response instead of executing again.
 //
-// Note: a response is cached under the key once the original attempt
-// completes, including error responses — retrying a failed request with
-// the same key returns the recorded failure; use a fresh key to
-// re-execute.
+// Note: a 2xx response, or a 4xx other than a 429, is recorded under the
+// key once the original attempt completes, and repeating the request with
+// the same key returns it; use a fresh key to run a refused request again.
+// A 5xx or a 429 is never recorded, so retry it under the same key.
 func WithIdempotencyKey(key string) RequestOption {
 	return func(cfg *requestConfig) {
 		cfg.idempotencyKey = key
@@ -63,6 +64,18 @@ func withoutAutoIdempotencyKey() RequestOption {
 func withoutServerErrorRetries() RequestOption {
 	return func(cfg *requestConfig) {
 		cfg.retryServerErrors = false
+	}
+}
+
+// withoutUnknownOutcomeRetries returns a 5xx, a timeout or a network error
+// to the caller instead of retrying it, because the request may have run.
+// Used where a re-executed attempt repeats a side effect the server doesn't
+// dedupe. A retryable 429, which the server refused before running the
+// request, is still retried.
+func withoutUnknownOutcomeRetries() RequestOption {
+	return func(cfg *requestConfig) {
+		cfg.retryServerErrors = false
+		cfg.retryNetworkErrors = false
 	}
 }
 

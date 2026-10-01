@@ -164,10 +164,10 @@ type UpgradeStatusResponse struct {
 // CancelUpgradeResponse is returned by Cancel. Idempotent — calling Cancel
 // when no upgrade is in flight returns Cancelled=false with a no-op message.
 type CancelUpgradeResponse struct {
-	Success                  bool   `json:"success"`
-	Cancelled                bool   `json:"cancelled"`
-	CancelledVerificationID  string `json:"cancelledVerificationId,omitempty"`
-	Message                  string `json:"message"`
+	Success                 bool   `json:"success"`
+	Cancelled               bool   `json:"cancelled"`
+	CancelledVerificationID string `json:"cancelledVerificationId,omitempty"`
+	Message                 string `json:"message"`
 }
 
 // ResubmitUpgradeResponse is returned by Resubmit.
@@ -348,6 +348,9 @@ func (s *BusinessUpgradeService) SetDisposition(ctx context.Context, workspaceID
 // form-data, optionally including the einDoc file part. Centralised so Start
 // and Resubmit share serialization rules.
 func (c *Client) requestUpgradeMultipart(ctx context.Context, path string, params interface{}, einDoc *EinDocument, result interface{}) error {
+	if err := checkPathSegments(path); err != nil {
+		return err
+	}
 	if err := c.rateLimiter.Wait(ctx); err != nil {
 		return &NetworkError{Message: "rate limiter error", Err: err}
 	}

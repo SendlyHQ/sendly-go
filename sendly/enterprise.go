@@ -94,12 +94,17 @@ func (s *EnterpriseService) UploadVerificationDocument(ctx context.Context, file
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
-	part, err := writer.CreateFormFile("file", filepath.Base(filename))
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, &NetworkError{Message: "failed to write file data", Err: err}
+	}
+
+	part, err := createFilePart(writer, "file", filepath.Base(filename), data)
 	if err != nil {
 		return nil, &NetworkError{Message: "failed to create form file", Err: err}
 	}
 
-	if _, err := io.Copy(part, file); err != nil {
+	if _, err := part.Write(data); err != nil {
 		return nil, &NetworkError{Message: "failed to write file data", Err: err}
 	}
 
@@ -249,6 +254,24 @@ func (s *WorkspacesService) InheritVerification(ctx context.Context, id, sourceI
 	body := map[string]string{"sourceWorkspaceId": sourceID}
 	var resp InheritVerificationResponse
 	if err := s.client.request(ctx, "POST", fmt.Sprintf("/enterprise/workspaces/%s/verification/inherit", url.PathEscape(id)), body, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// InheritVerificationWithOptions inherits another workspace's verification,
+// optionally ordering the workspace its own toll-free number (see
+// InheritVerificationRequest.PurchaseNewNumber).
+func (s *WorkspacesService) InheritVerificationWithOptions(ctx context.Context, id string, req *InheritVerificationRequest) (*InheritVerificationResponse, error) {
+	if id == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "workspace ID is required"}}
+	}
+	if req == nil || req.SourceWorkspaceID == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "source workspace ID is required"}}
+	}
+
+	var resp InheritVerificationResponse
+	if err := s.client.request(ctx, "POST", fmt.Sprintf("/enterprise/workspaces/%s/verification/inherit", url.PathEscape(id)), req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -483,8 +506,8 @@ func (s *WorkspacesService) ProvisionBulk(ctx context.Context, workspaces []Bulk
 	if len(workspaces) == 0 {
 		return nil, &ValidationError{APIError: APIError{Message: "workspaces array is required"}}
 	}
-	if len(workspaces) > 50 {
-		return nil, &ValidationError{APIError: APIError{Message: "maximum 50 workspaces per bulk provision"}}
+	if len(workspaces) > 100 {
+		return nil, &ValidationError{APIError: APIError{Message: "maximum 100 workspaces per bulk provision"}}
 	}
 
 	body := &BulkProvisionRequest{Workspaces: workspaces}
@@ -590,6 +613,21 @@ func (s *EnterpriseWebhooksService) Set(ctx context.Context, webhookURL string) 
 	body := map[string]string{"url": webhookURL}
 	var resp EnterpriseWebhook
 	if err := s.client.request(ctx, "POST", "/enterprise/webhooks", body, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// SetWithOptions registers the enterprise webhook URL and chooses which
+// events and workspaces it receives. The first registration returns the
+// signing secret in SigningSecret, once.
+func (s *EnterpriseWebhooksService) SetWithOptions(ctx context.Context, req *SetEnterpriseWebhookRequest) (*EnterpriseWebhook, error) {
+	if req == nil || req.URL == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "url is required"}}
+	}
+
+	var resp EnterpriseWebhook
+	if err := s.client.request(ctx, "POST", "/enterprise/webhooks", req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

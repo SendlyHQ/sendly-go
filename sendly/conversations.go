@@ -163,7 +163,10 @@ func (s *ConversationsService) MarkRead(ctx context.Context, id string) (*Conver
 	return &resp, nil
 }
 
-// AddLabels adds labels to a conversation.
+// AddLabels adds labels to a conversation and returns the conversation, read
+// back after the change with a second request. If that read fails, the
+// labels have still been added, and the returned Conversation carries only
+// its ID.
 func (s *ConversationsService) AddLabels(ctx context.Context, id string, labelIds []string) (*Conversation, error) {
 	if id == "" {
 		return nil, &ValidationError{APIError: APIError{Message: "conversation ID is required"}}
@@ -176,16 +179,18 @@ func (s *ConversationsService) AddLabels(ctx context.Context, id string, labelId
 
 	body := &AddLabelsRequest{LabelIds: labelIds}
 
-	var resp Conversation
-	err := s.client.request(ctx, "POST", path, body, &resp)
+	err := s.client.request(ctx, "POST", path, body, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	return &resp, nil
+	return s.readBack(ctx, id), nil
 }
 
-// RemoveLabel removes a label from a conversation.
+// RemoveLabel removes a label from a conversation and returns the
+// conversation, read back after the change with a second request. If that
+// read fails, the label has still been removed, and the returned
+// Conversation carries only its ID.
 func (s *ConversationsService) RemoveLabel(ctx context.Context, id string, labelId string) (*Conversation, error) {
 	if id == "" {
 		return nil, &ValidationError{APIError: APIError{Message: "conversation ID is required"}}
@@ -196,13 +201,20 @@ func (s *ConversationsService) RemoveLabel(ctx context.Context, id string, label
 
 	path := "/conversations/" + url.PathEscape(id) + "/labels/" + url.PathEscape(labelId)
 
-	var resp Conversation
-	err := s.client.request(ctx, "DELETE", path, nil, &resp)
+	err := s.client.request(ctx, "DELETE", path, nil, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	return &resp, nil
+	return s.readBack(ctx, id), nil
+}
+
+func (s *ConversationsService) readBack(ctx context.Context, id string) *Conversation {
+	conversation, err := s.Get(ctx, id, nil)
+	if err != nil {
+		return &Conversation{ID: id}
+	}
+	return &conversation.Conversation
 }
 
 // GetContext retrieves the conversation context for AI/LLM consumption.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -552,5 +553,144 @@ func TestMessagesService_LegacyMethodValues(t *testing.T) {
 	}
 	if send == nil || sendWhatsApp == nil || sendRcs == nil || sendGroup == nil || schedule == nil || sendBatch == nil {
 		t.Fatal("expected legacy method values to be non-nil")
+	}
+}
+
+func TestMessagesSendGroup_LiveRecipients(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.URL.Path != "/messages/group" {
+			t.Errorf("expected path '/messages/group', got '%s'", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"id":"msg_1","status":"sent","to":[{"phoneNumber":"+15551230001","status":"queued"},{"phoneNumber":"+15551230002","status":"queued"}],"group_message_id":"grp_1"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	resp, err := client.Messages.SendGroup(context.Background(), &SendGroupMessageRequest{
+		To:   []string{"+15551230001", "+15551230002"},
+		Text: "Hello, group",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if requests != 1 {
+		t.Errorf("expected 1 request, got %d", requests)
+	}
+	if resp.ID != "msg_1" || resp.Status != MessageStatusSent || resp.GroupMessageID != "grp_1" {
+		t.Errorf("unexpected response: %+v", resp)
+	}
+	if len(resp.To) != 2 || resp.To[0] != "+15551230001" || resp.To[1] != "+15551230002" {
+		t.Errorf("expected To to list the recipients' numbers, got %v", resp.To)
+	}
+	if len(resp.Recipients) != 2 || resp.Recipients[0].PhoneNumber != "+15551230001" || resp.Recipients[0].Status != "queued" {
+		t.Errorf("expected Recipients to carry each recipient's status, got %+v", resp.Recipients)
+	}
+}
+
+func TestGroupMessageResponse_RoundTrip(t *testing.T) {
+	original := GroupMessageResponse{
+		ID:             "msg_1",
+		Status:         MessageStatusSent,
+		To:             []string{"+15551230001", "+15551230002"},
+		GroupMessageID: "grp_1",
+		Recipients: []GroupRecipient{
+			{PhoneNumber: "+15551230001", Status: "queued"},
+			{PhoneNumber: "+15551230002", Status: "queued"},
+		},
+	}
+
+	encoded, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+
+	var decoded GroupMessageResponse
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("unexpected unmarshal error: %v", err)
+	}
+	if !reflect.DeepEqual(original, decoded) {
+		t.Errorf("round-trip changed the value:\n before %+v\n after  %+v", original, decoded)
+	}
+}
+
+func TestMessagesSendGroup_SimulatedRecipients(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"id":"msg_2","status":"delivered","to":["+15551230001","+15551230002"],"simulated":true,"message":"Group message simulated (test key or verification pending)."}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	resp, err := client.Messages.SendGroup(context.Background(), &SendGroupMessageRequest{
+		To:   []string{"+15551230001", "+15551230002"},
+		Text: "Hello, group",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Simulated || len(resp.To) != 2 || resp.To[1] != "+15551230002" {
+		t.Errorf("unexpected response: %+v", resp)
+	}
+}
+
+func TestGroupMessageResponse_WithoutRecipients(t *testing.T) {
+	bodies := map[string]string{
+		"null to":    `{"id":"msg_3","status":"delivered","to":null,"simulated":true}`,
+		"missing to": `{"id":"msg_3","status":"delivered","simulated":true}`,
+	}
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			var resp GroupMessageResponse
+			if err := json.Unmarshal([]byte(body), &resp); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.ID != "msg_3" || !resp.Simulated || resp.To != nil || resp.Recipients != nil {
+				t.Errorf("unexpected response: %+v", resp)
+			}
+		})
+	}
+}
+
+func TestGroupMessageResponse_RejectsWhatDoesNotDecode(t *testing.T) {
+	bodies := map[string]string{
+		"to that is neither numbers nor recipients": `{"id":"msg_4","status":"sent","to":"+15551230001"}`,
+		"id that is not a string":                   `{"id":5,"status":"sent","to":["+15551230001"]}`,
+	}
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			var resp GroupMessageResponse
+			if err := json.Unmarshal([]byte(body), &resp); err == nil {
+				t.Errorf("expected an error, got %+v", resp)
+			}
+		})
+	}
+}
+
+func TestMessagesList_ReadsPagination(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"msg_1","to":"+15551230001","from":"+18885550100","text":"Hi","status":"delivered","direction":"outbound","error":null,"errorCode":null,"retryCount":0,"segments":1,"creditsUsed":2,"isSandbox":false,"createdAt":"2026-09-25T10:00:00.000Z","deliveredAt":"2026-09-25T10:00:03.000Z","message_format":"sms","messageFormat":"sms"},{"id":"msg_2","to":"+15551230002","from":"+18885550100","text":"Hi","status":"received","direction":"inbound","error":null,"errorCode":null,"retryCount":0,"segments":1,"creditsUsed":0,"isSandbox":false,"createdAt":"2026-09-25T10:01:00.000Z","deliveredAt":null,"message_format":"sms","messageFormat":"sms"}],"pagination":{"total":57,"limit":2,"offset":0,"page":1,"totalPages":29,"hasMore":true},"count":2}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	resp, err := client.Messages.List(context.Background(), &ListMessagesRequest{Limit: 2})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Data) != 2 || resp.Count != 2 {
+		t.Errorf("expected 2 messages and Count 2, got %d and %d", len(resp.Data), resp.Count)
+	}
+	if resp.Pagination == nil {
+		t.Fatalf("expected Pagination")
+	}
+	if resp.Pagination.Total != 57 || !resp.Pagination.HasMore || resp.Pagination.TotalPages != 29 || resp.Pagination.Page != 1 || resp.Pagination.Limit != 2 {
+		t.Errorf("unexpected Pagination: %+v", resp.Pagination)
 	}
 }

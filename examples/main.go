@@ -28,7 +28,7 @@ func main() {
 	// Example 1: Send an SMS
 	fmt.Println("=== Sending SMS ===")
 	message, err := client.Messages.Send(ctx, &sendly.SendMessageRequest{
-		To:   "+15551234567",
+		To:   "+15125550123",
 		Text: "Hello from Sendly Go SDK!",
 	})
 	if err != nil {
@@ -48,7 +48,10 @@ func main() {
 	if err != nil {
 		handleError(err)
 	} else {
-		fmt.Printf("Found %d messages\n", len(listResp.Data))
+		fmt.Printf("Found %d messages on this page\n", listResp.Count)
+		if listResp.Pagination != nil {
+			fmt.Printf("  %d in all, more pages: %t\n", listResp.Pagination.Total, listResp.Pagination.HasMore)
+		}
 		for _, msg := range listResp.Data {
 			fmt.Printf("  - %s: %s (%s)\n", msg.ID, msg.To, msg.Status)
 		}
@@ -76,6 +79,11 @@ func handleError(err error) {
 	case sendly.IsAuthenticationError(err):
 		log.Printf("Authentication failed: %v", err)
 	case sendly.IsRateLimitError(err):
+		rateLimitErr := err.(*sendly.RateLimitError)
+		if rateLimitErr.Code == "too_many_failed_key_attempts" {
+			log.Printf("Too many wrong API keys from this address: fix the key, then wait %d seconds", rateLimitErr.RetryAfter)
+			return
+		}
 		log.Printf("Rate limit exceeded: %v", err)
 	case sendly.IsInsufficientCreditsError(err):
 		log.Printf("Insufficient credits: %v", err)

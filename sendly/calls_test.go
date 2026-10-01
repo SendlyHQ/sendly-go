@@ -751,3 +751,22 @@ func TestNumbersList_VoiceFields(t *testing.T) {
 		t.Errorf("unexpected voice fields on num_2: %v %v", second.VoiceEnabled, second.VoiceMode)
 	}
 }
+
+func TestCallsCreate_FromNumberNotSupported(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"from_number_not_supported","message":"Calls can only be placed from numbers in the US or Canada right now."}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	_, err := client.Calls.Create(context.Background(), &CreateCallRequest{To: "+15551230001", AgentID: "agt_1", From: "+447700900000"})
+	validationErr, ok := err.(*ValidationError)
+	if !ok {
+		t.Fatalf("expected *ValidationError, got %T: %v", err, err)
+	}
+	if validationErr.Code != CallErrorCodeFromNumberNotSupported {
+		t.Errorf("expected code %q, got %q", CallErrorCodeFromNumberNotSupported, validationErr.Code)
+	}
+}

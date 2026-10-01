@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -626,5 +627,261 @@ func TestMessagesListBatches_ServerError(t *testing.T) {
 	}
 	if sendlyErr.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected status code 500, got %d", sendlyErr.StatusCode)
+	}
+}
+
+const wireBatchRead = `{"id":"batch_1","status":"completed","total":2,"queued":0,"sent":2,"delivered":2,"failed":0,"creditsReserved":4,"creditsUsed":4,"creditsRefunded":0,"createdAt":"2026-09-25T10:00:00.000Z","completedAt":"2026-09-25T10:00:05.000Z"}`
+
+func TestMessagesListBatches_ReadsIDFromWire(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[` + wireBatchRead + `],"count":1}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	result, err := client.Messages.ListBatches(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Data) != 1 {
+		t.Fatalf("expected 1 batch, got %d", len(result.Data))
+	}
+	if result.Data[0].BatchID != "batch_1" {
+		t.Errorf("expected BatchID 'batch_1', got '%s'", result.Data[0].BatchID)
+	}
+	if result.Data[0].ID != "batch_1" {
+		t.Errorf("expected ID 'batch_1', got '%s'", result.Data[0].ID)
+	}
+	if result.Data[0].Delivered != 2 {
+		t.Errorf("expected Delivered 2, got %d", result.Data[0].Delivered)
+	}
+	if result.Data[0].CreditsReserved != 4 {
+		t.Errorf("expected CreditsReserved 4, got %d", result.Data[0].CreditsReserved)
+	}
+}
+
+func TestMessagesGetBatch_ReadsIDFromWire(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/messages/batch/batch_1" {
+			t.Errorf("expected path '/messages/batch/batch_1', got '%s'", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(wireBatchRead))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	result, err := client.Messages.GetBatch(context.Background(), "batch_1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.BatchID != "batch_1" {
+		t.Errorf("expected BatchID 'batch_1', got '%s'", result.BatchID)
+	}
+	if result.CompletedAt == nil || *result.CompletedAt != "2026-09-25T10:00:05.000Z" {
+		t.Errorf("expected CompletedAt to decode, got %v", result.CompletedAt)
+	}
+}
+
+func TestMessagesSendBatch_FillsIDFromBatchID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"batchId":"batch_2","status":"completed","total":3,"sent":2,"failed":0,"retrying":0,"optedOutSkipped":1,"invalidSkipped":0,"creditsUsed":4,"creditsRefunded":0,"messages":[{"index":0,"id":"msg_1","to":"+15551230001","status":"sent"}]}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	result, err := client.Messages.SendBatch(context.Background(), &SendBatchRequest{
+		Messages: []BatchMessageItem{
+			{To: "+15551230001", Text: "Hi"},
+			{To: "+15551230002", Text: "Hi"},
+			{To: "+15551230003", Text: "Hi"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.BatchID != "batch_2" || result.ID != "batch_2" {
+		t.Errorf("expected BatchID and ID 'batch_2', got '%s' and '%s'", result.BatchID, result.ID)
+	}
+	if result.OptedOutSkipped != 1 {
+		t.Errorf("expected OptedOutSkipped 1, got %d", result.OptedOutSkipped)
+	}
+	if len(result.Messages) != 1 || result.Messages[0].ID != "msg_1" {
+		t.Errorf("expected the per-message result to decode, got %+v", result.Messages)
+	}
+}
+
+func TestBatchMessageResponse_RoundTrip(t *testing.T) {
+	completed := "2026-09-25T10:00:05.000Z"
+	original := BatchMessageResponse{
+		BatchID:         "batch_1",
+		ID:              "batch_1",
+		Status:          BatchStatusCompleted,
+		Total:           2,
+		Sent:            2,
+		Delivered:       2,
+		CreditsReserved: 4,
+		CreditsUsed:     4,
+		CreatedAt:       "2026-09-25T10:00:00.000Z",
+		CompletedAt:     &completed,
+	}
+
+	encoded, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+
+	var decoded BatchMessageResponse
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("unexpected unmarshal error: %v", err)
+	}
+	if !reflect.DeepEqual(original, decoded) {
+		t.Errorf("round-trip changed the value:\n before %+v\n after  %+v", original, decoded)
+	}
+}
+
+const wirePreviewCountryBlocked = `{"total":3,"sendable":2,"blocked":1,"duplicates":0,"creditsNeeded":4,"creditBalance":100,"hasSufficientCredits":true,"pooled":false,"keyType":"live","keyScopes":["sms:send","sms:read"],"hasWriteScope":true,"messagingProfile":{"id":"mp_1","canSendDomestic":true,"canSendInternational":false,"verificationStatus":"approved","verificationType":"toll_free"},"byCountry":{"US":{"count":2,"credits":4,"tier":"domestic","allowed":true},"GB":{"count":1,"credits":0,"tier":"tier2","allowed":false,"blockedReason":"country_not_allowed"}},"blockedMessages":[{"index":2,"to":"+447700900000","reason":"country_not_allowed"}],"compliance":{"messageType":"marketing","optedOutBlocked":0,"shaftBlocked":0,"quietHoursBlocked":0,"quietHoursRescheduled":0,"shaftBlockedMessages":[],"quietHoursBlockedMessages":[]},"warnings":["Marketing messages are subject to quiet hours enforcement (8pm-8am recipient local time)"]}`
+
+func previewBatchServer(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/messages/batch/preview" {
+			t.Errorf("expected path '/messages/batch/preview', got '%s'", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(body))
+	}))
+}
+
+var previewRequest = &SendBatchRequest{Messages: []BatchMessageItem{
+	{To: "+15551230001", Text: "Hi"},
+	{To: "+15551230002", Text: "Hi"},
+	{To: "+447700900000", Text: "Hi"},
+}}
+
+func TestMessagesPreviewBatch_ReadsTheWire(t *testing.T) {
+	server := previewBatchServer(t, wirePreviewCountryBlocked)
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	preview, err := client.Messages.PreviewBatch(context.Background(), previewRequest)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if preview.TotalMessages != 3 || preview.WillSend != 2 || preview.Blocked != 1 || preview.CreditsNeeded != 4 {
+		t.Errorf("expected counts 3/2/1/4, got %d/%d/%d/%d", preview.TotalMessages, preview.WillSend, preview.Blocked, preview.CreditsNeeded)
+	}
+	if preview.CurrentBalance != 100 || !preview.HasEnoughCredits {
+		t.Errorf("expected balance 100 with enough credits, got %d/%v", preview.CurrentBalance, preview.HasEnoughCredits)
+	}
+	if preview.BlockReasons["country_not_allowed"] != 1 {
+		t.Errorf("expected BlockReasons[country_not_allowed] 1, got %v", preview.BlockReasons)
+	}
+	if preview.CanSend {
+		t.Errorf("expected CanSend false: a live send rejects the whole batch when a message is blocked for anything but an opt-out")
+	}
+	if preview.Total != 3 || preview.Sendable != 2 || preview.CreditBalance != 100 || !preview.HasSufficientCredits {
+		t.Errorf("unexpected wire fields: %+v", preview)
+	}
+	if len(preview.BlockedMessages) != 1 || preview.BlockedMessages[0].Index != 2 || preview.BlockedMessages[0].To != "+447700900000" {
+		t.Errorf("unexpected BlockedMessages: %+v", preview.BlockedMessages)
+	}
+	if gb := preview.ByCountry["GB"]; gb.Allowed || gb.Count != 1 || gb.Tier != "tier2" || gb.BlockedReason != "country_not_allowed" {
+		t.Errorf("unexpected ByCountry[GB]: %+v", gb)
+	}
+	if preview.MessagingProfile == nil || !preview.MessagingProfile.CanSendDomestic || preview.MessagingProfile.CanSendInternational {
+		t.Errorf("unexpected MessagingProfile: %+v", preview.MessagingProfile)
+	}
+	if preview.Compliance == nil || preview.Compliance.MessageType != "marketing" {
+		t.Errorf("unexpected Compliance: %+v", preview.Compliance)
+	}
+	if preview.KeyType != "live" || !preview.HasWriteScope || len(preview.Warnings) != 1 {
+		t.Errorf("unexpected key fields or warnings: %+v", preview)
+	}
+}
+
+func TestBatchPreviewResponse_CanSend(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{
+			name: "opted-out recipients are skipped, not refused",
+			body: `{"total":3,"sendable":2,"blocked":1,"creditsNeeded":4,"creditBalance":100,"hasSufficientCredits":true,"keyType":"live","hasWriteScope":true,"blockedMessages":[{"index":0,"to":"+15551230000","reason":"Contact has opted out (texted STOP)"}],"compliance":{"messageType":"marketing","optedOutBlocked":1}}`,
+			want: true,
+		},
+		{
+			name: "a test key needs no balance",
+			body: `{"total":1,"sendable":1,"blocked":0,"creditsNeeded":2,"creditBalance":0,"hasSufficientCredits":false,"keyType":"test","hasWriteScope":true,"compliance":{"optedOutBlocked":0}}`,
+			want: true,
+		},
+		{
+			name: "a live key needs the balance",
+			body: `{"total":1,"sendable":1,"blocked":0,"creditsNeeded":2,"creditBalance":0,"hasSufficientCredits":false,"keyType":"live","hasWriteScope":true,"compliance":{"optedOutBlocked":0}}`,
+			want: false,
+		},
+		{
+			name: "a key without sms:send cannot send",
+			body: `{"total":1,"sendable":1,"blocked":0,"creditsNeeded":2,"creditBalance":10,"hasSufficientCredits":true,"keyType":"live","hasWriteScope":false,"compliance":{"optedOutBlocked":0}}`,
+			want: false,
+		},
+		{
+			name: "nothing sendable",
+			body: `{"total":1,"sendable":0,"blocked":1,"creditsNeeded":0,"creditBalance":10,"hasSufficientCredits":true,"keyType":"live","hasWriteScope":true,"blockedMessages":[{"index":0,"to":"+15551230000","reason":"Contact has opted out (texted STOP)"}],"compliance":{"optedOutBlocked":1}}`,
+			want: false,
+		},
+		{
+			name: "a batch over 10,000 messages is refused",
+			body: `{"total":10001,"sendable":10001,"blocked":0,"duplicates":0,"creditsNeeded":20002,"creditBalance":50000,"hasSufficientCredits":true,"pooled":false,"keyType":"live","keyScopes":["sms:send","sms:read"],"hasWriteScope":true,"blockedMessages":[],"compliance":{"messageType":"transactional","optedOutBlocked":0,"shaftBlocked":0,"quietHoursBlocked":0,"quietHoursRescheduled":0,"shaftBlockedMessages":[],"quietHoursBlockedMessages":[]},"warnings":["Batch size exceeds 10,000 limit - sending it will be rejected, split it into batches of 10,000 or fewer"]}`,
+			want: false,
+		},
+		{
+			name: "a test key's blocks are judged as a live send judges them",
+			body: `{"total":2,"sendable":0,"blocked":2,"duplicates":0,"creditsNeeded":0,"creditBalance":0,"hasSufficientCredits":true,"pooled":false,"keyType":"test","keyScopes":["sms:send","sms:read"],"hasWriteScope":true,"messagingProfile":{"id":null,"canSendDomestic":false,"canSendInternational":false,"verificationStatus":null,"verificationType":null},"byCountry":{"US":{"count":2,"credits":0,"tier":"domestic","allowed":false,"blockedReason":"No messaging profile - complete verification first"}},"blockedMessages":[{"index":0,"to":"+15551230001","reason":"No messaging profile - complete verification first"},{"index":1,"to":"+15551230002","reason":"No messaging profile - complete verification first"}],"compliance":{"messageType":"marketing","optedOutBlocked":0,"shaftBlocked":0,"quietHoursBlocked":0,"quietHoursRescheduled":0,"shaftBlockedMessages":[],"quietHoursBlockedMessages":[]},"warnings":["Using TEST key - messages will be simulated in sandbox mode","No messaging profile - complete verification to send messages","Marketing messages are subject to quiet hours enforcement (8pm-8am recipient local time)"]}`,
+			want: false,
+		},
+		{
+			name: "a batch of 10,000 messages can be sent",
+			body: `{"total":10000,"sendable":10000,"blocked":0,"duplicates":0,"creditsNeeded":20000,"creditBalance":50000,"hasSufficientCredits":true,"pooled":false,"keyType":"live","keyScopes":["sms:send","sms:read"],"hasWriteScope":true,"blockedMessages":[],"compliance":{"messageType":"transactional","optedOutBlocked":0,"shaftBlocked":0,"quietHoursBlocked":0,"quietHoursRescheduled":0,"shaftBlockedMessages":[],"quietHoursBlockedMessages":[]},"warnings":[]}`,
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var preview BatchPreviewResponse
+			if err := json.Unmarshal([]byte(tt.body), &preview); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if preview.CanSend != tt.want {
+				t.Errorf("expected CanSend %v, got %v", tt.want, preview.CanSend)
+			}
+		})
+	}
+}
+
+func TestBatchPreviewResponse_RoundTrip(t *testing.T) {
+	var original BatchPreviewResponse
+	if err := json.Unmarshal([]byte(wirePreviewCountryBlocked), &original); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	encoded, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+
+	var decoded BatchPreviewResponse
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("unexpected unmarshal error: %v", err)
+	}
+	if !reflect.DeepEqual(original, decoded) {
+		t.Errorf("round-trip changed the value:\n before %+v\n after  %+v", original, decoded)
 	}
 }
