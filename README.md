@@ -191,7 +191,7 @@ timeout after the API answered, or a gateway 5xx in front of a recorded
 answer), the retry gets the recorded answer back instead of sending and
 charging twice. The API deduplicates on sends, batch, group, schedule,
 conversation replies, draft approval, verify, number purchase, credit
-transfers, enterprise deposits and provisioning, WhatsApp signup and template
+transfers, enterprise provisioning, WhatsApp signup and template
 creation, calls, and RCS and short-code writes; other POSTs ignore the key, so
 a retried call there can run twice. Pass your own key with
 `sendly.WithIdempotencyKey` when the guarantee needs to outlive the process,
@@ -2377,7 +2377,6 @@ _ = client.Enterprise.Workspaces.RevokeKey(ctx, "ws_xxx", "key_abc")
 
 // The shared credit pool behind the workspaces
 pool, _ := client.Enterprise.Credits.Get(ctx)
-pool, _ = client.Enterprise.Credits.Deposit(ctx, 10000, "Monthly top-up")
 ```
 
 ### Webhooks & Analytics
