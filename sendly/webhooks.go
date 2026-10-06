@@ -84,6 +84,10 @@ const (
 	WebhookEventShortCodeRejected          WebhookEventType = "short_code.rejected"
 	WebhookEventShortCodeFiled             WebhookEventType = "short_code.filed"
 	WebhookEventShortCodeLive              WebhookEventType = "short_code.live"
+	WebhookEventShortCodeSuspended         WebhookEventType = "short_code.suspended"
+	WebhookEventShortCodeReactivated       WebhookEventType = "short_code.reactivated"
+	WebhookEventShortCodePaymentSucceeded  WebhookEventType = "short_code.payment_succeeded"
+	WebhookEventShortCodePaymentFailed     WebhookEventType = "short_code.payment_failed"
 
 	signatureToleranceSeconds = 300
 )
