@@ -276,9 +276,10 @@ Attach `MediaUrls` to turn a message into an MMS. Media has to be uploaded
 through the media endpoint first — arbitrary third-party URLs are rejected.
 `Media.Upload` takes a JPEG, PNG or GIF of up to 600 KB and labels the file
 with the type its content shows (or, failing that, its extension). Any other
-type or a larger file is refused with a `*sendly.SendlyError` (HTTP 500), and
-a file whose content does not match its image type with a
-`*sendly.ValidationError` (`invalid_file`).
+type is refused with a `*sendly.SendlyError` (HTTP 415,
+`unsupported_media_type`), a larger file with a `*sendly.SendlyError`
+(HTTP 413, `file_too_large`), and a file whose content does not match its
+image type with a `*sendly.ValidationError` (`invalid_file`).
 
 ```go
 file, err := os.Open("promo.jpg")

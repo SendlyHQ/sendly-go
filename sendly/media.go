@@ -22,10 +22,11 @@ type MediaService struct {
 
 // Upload uploads a JPEG, PNG or GIF image (up to 600 KB) for use in MMS
 // messages. The file is labelled with the type its content shows, or failing
-// that the type its filename's extension names. Any other type, or a larger
-// file, is refused with a *SendlyError (HTTP 500); a file whose content is not
-// the image type it is labelled with is refused with a *ValidationError (code
-// invalid_file).
+// that the type its filename's extension names. Any other type is refused
+// with a *SendlyError (HTTP 415, code unsupported_media_type) and a larger
+// file with a *SendlyError (HTTP 413, code file_too_large); a file whose
+// content is not the image type it is labelled with is refused with a
+// *ValidationError (code invalid_file).
 func (s *MediaService) Upload(ctx context.Context, filename string, file io.Reader) (*MediaFile, error) {
 	if file == nil {
 		return nil, &ValidationError{APIError: APIError{Message: "file is required"}}

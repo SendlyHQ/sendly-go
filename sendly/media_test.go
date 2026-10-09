@@ -33,9 +33,57 @@ func multerFilterServer(t *testing.T, allowed []string, refusal, reply string, s
 				return
 			}
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"message": refusal})
+		w.WriteHeader(http.StatusUnsupportedMediaType)
+		json.NewEncoder(w).Encode(map[string]string{"error": "unsupported_media_type", "message": refusal})
 	}))
+}
+
+func TestMediaUpload_RefusesATypeTheRouteFiltersOutWithoutRetrying(t *testing.T) {
+	var seen []string
+	server := multerFilterServer(t, []string{"image/jpeg", "image/png", "image/gif"},
+		"Only JPEG, PNG, and GIF images are allowed for MMS", `{}`, &seen)
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	_, err := client.Media.Upload(context.Background(), "photo.webp", bytes.NewReader([]byte("RIFF0000WEBPVP8 ")))
+	se, ok := err.(*SendlyError)
+	if !ok {
+		t.Fatalf("expected a *SendlyError, got %T: %v", err, err)
+	}
+	if se.StatusCode != http.StatusUnsupportedMediaType || se.Code != "unsupported_media_type" {
+		t.Errorf("expected 415 unsupported_media_type, got %d %q", se.StatusCode, se.Code)
+	}
+	if se.Message != "Only JPEG, PNG, and GIF images are allowed for MMS" {
+		t.Errorf("expected the route's reason, got %q", se.Message)
+	}
+	if len(seen) != 1 {
+		t.Errorf("expected one request, got %d", len(seen))
+	}
+}
+
+func TestMediaUpload_RefusesAFileOverTheLimitWithoutRetrying(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		w.Write([]byte(`{"error":"file_too_large","message":"The file in field \"file\" is too large."}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	_, err := client.Media.Upload(context.Background(), "photo.jpg", bytes.NewReader([]byte("\xff\xd8\xff\xe0")))
+	se, ok := err.(*SendlyError)
+	if !ok {
+		t.Fatalf("expected a *SendlyError, got %T: %v", err, err)
+	}
+	if se.StatusCode != http.StatusRequestEntityTooLarge || se.Code != "file_too_large" {
+		t.Errorf("expected 413 file_too_large, got %d %q", se.StatusCode, se.Code)
+	}
+	if requests != 1 {
+		t.Errorf("expected one request, got %d", requests)
+	}
 }
 
 func TestMediaUpload_SendsTheFileContentType(t *testing.T) {
