@@ -239,9 +239,10 @@ type Call struct {
 	// agent_left_unanswered, agent_caller_never_joined, invalid_number,
 	// destination_rejected), cut short by the platform (max_duration,
 	// credits_exhausted, media_aborted, peer_connection_lost, room_closed,
-	// agent_left) and setup problems (setup_failed, agent_dispatch_failed,
-	// agent_api_unreachable, agent_already_ended). Anything unrecognised is
-	// reported as "ended".
+	// agent_left), agent outcomes (transferred, voicemail,
+	// voicemail_unavailable) and setup problems (setup_failed,
+	// agent_dispatch_failed, agent_api_unreachable, agent_already_ended).
+	// Anything unrecognised is reported as "ended".
 	HangupClass *string `json:"hangupClass"`
 	// RecordingStatus is the recording's state, nil when there is nothing to report.
 	RecordingStatus *CallRecordingStatus `json:"recordingStatus"`

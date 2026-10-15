@@ -86,6 +86,7 @@ const (
 	WebhookEventShortCodeLive              WebhookEventType = "short_code.live"
 	WebhookEventShortCodeSuspended         WebhookEventType = "short_code.suspended"
 	WebhookEventShortCodeReactivated       WebhookEventType = "short_code.reactivated"
+	WebhookEventShortCodeCancelled         WebhookEventType = "short_code.cancelled"
 	WebhookEventShortCodePaymentSucceeded  WebhookEventType = "short_code.payment_succeeded"
 	WebhookEventShortCodePaymentFailed     WebhookEventType = "short_code.payment_failed"
 
