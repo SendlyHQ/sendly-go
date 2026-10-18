@@ -53,7 +53,7 @@ func (s *MessagesService) SendWithOptions(ctx context.Context, req *SendMessageR
 //   - 422 whatsapp_send_failed (*ValidationError): WhatsApp refused the
 //     message, and nothing was charged. It is final and not retried; the
 //     API caches it under the idempotency key and replays it for 24 hours.
-//   - 502 whatsapp_send_failed (*SendlyError): the message provably never
+//   - 503 whatsapp_send_failed (*SendlyError): the message provably never
 //     reached the carrier, so it was not sent and is safe to send again.
 //     Nothing was charged. It is never cached, so the client retries it
 //     like any 5xx under the same idempotency key.
@@ -66,6 +66,16 @@ func (s *MessagesService) SendWithOptions(ctx context.Context, req *SendMessageR
 // The codes are WhatsAppErrorCodeSendFailed and
 // WhatsAppErrorCodeSendUnconfirmed. No send returns 503
 // whatsapp_unavailable.
+//
+// With FallbackToSms, a message WhatsApp can't deliver goes as an SMS from
+// the same number, billed as an SMS; the response's Fallback says what
+// happened, and FellBack reports whether the SMS went (Status is then
+// "failed"). When the SMS couldn't go either, a closed window answers 422
+// whatsapp_window_closed and a refusal 422 whatsapp_send_failed, each with
+// the fallback object in the error's Extra["fallback"] (the window-closed
+// one also carries the WhatsApp message's id in Extra["id"]). The send is
+// refused up front with 403 WhatsAppErrorCodeSmsFallbackUnavailable or 422
+// WhatsAppErrorCodeSmsFallbackNotSupported.
 func (s *MessagesService) SendWhatsApp(ctx context.Context, req *SendWhatsAppMessageRequest) (*WhatsAppMessage, error) {
 	return s.SendWhatsAppWithOptions(ctx, req)
 }

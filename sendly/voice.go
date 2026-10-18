@@ -93,10 +93,10 @@ const (
 	// VoiceErrorCodeE911NotApplicable (400, *ValidationError): emergency
 	// registration applies to US and Canadian numbers only.
 	VoiceErrorCodeE911NotApplicable = "e911_not_applicable"
-	// VoiceErrorCodeAttachFailed (502, *SendlyError): voice couldn't be
+	// VoiceErrorCodeAttachFailed (503, *SendlyError): voice couldn't be
 	// switched on for the number. Try again in a moment.
 	VoiceErrorCodeAttachFailed = "voice_attach_failed"
-	// VoiceErrorCodeCarrierRefused (502, *SendlyError): the emergency address
+	// VoiceErrorCodeCarrierRefused (503, *SendlyError): the emergency address
 	// couldn't be registered. It isn't retried automatically, because every
 	// attempt registers the address anew; retry once after a pause, unless the
 	// message says the number couldn't be found for emergency registration:

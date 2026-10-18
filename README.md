@@ -866,8 +866,8 @@ err = client.Rules.Delete(ctx, rule.ID)
 ## WhatsApp
 
 Connect a number you own to WhatsApp, create Meta-reviewed message templates,
-and send with `client.Messages.SendWhatsApp`. Connecting is a one-time $19
-setup (no monthly fee). The first number always ends with a human step: the
+and send with `client.Messages.SendWhatsApp`. Connecting is free (no monthly
+fee either). The first number always ends with a human step: the
 connect URL must be opened in a browser and completed with a Facebook login.
 Further numbers can join that WhatsApp Business Account with a code instead
 (see [Adding a number by code](#adding-a-number-by-code)). Free-form text and
@@ -889,16 +889,14 @@ workspace. While it is off, sends return 403 `whatsapp_not_enabled` and the
 `/api/v1/whatsapp/*` management routes return 404 `not_found`.
 
 While connections are unavailable, `Signup.Create` gets a 503
-`whatsapp_unavailable` before anything is charged, with `retryAfter: 3600` in
+`whatsapp_unavailable`, with `retryAfter: 3600` in
 the body and a `Retry-After: 3600` header (the client retries it like any 5xx
 before returning a `*sendly.SendlyError`). Only signup returns it; no send
-does. After 5 failed, charged signups in 24 hours it gets a 429
-`whatsapp_signup_limit_reached`, which is final for the day. If the connection
-fails, the $19 fee is refunded automatically; once a number has connected,
-a later disconnect gets nothing back.
+does. After 5 failed signups in 24 hours it gets a 429
+`whatsapp_signup_limit_reached`, which is final for the day.
 
 ```go
-// 1. Connect a number ($19 one-time). A human must open the connect URL.
+// 1. Connect a number (free). A human must open the connect URL.
 signup, err := client.WhatsApp.Signup.Create(ctx, "+15125550123")
 if err != nil {
     log.Fatal(err)
@@ -909,8 +907,7 @@ fmt.Printf("Have your user open: %s\n", signup.ConnectURL)
 //    "registering" while WhatsApp activates the number. Activation usually
 //    takes a few minutes but can take hours. If it hasn't finished about 6
 //    hours after the session began, the session fails with
-//    registration_timeout and the fee is refunded. "failed" sets
-//    FailureReasons.
+//    registration_timeout. "failed" sets FailureReasons.
 status, err := client.WhatsApp.Signup.Get(ctx, signup.ID)
 fmt.Println(status.Status) // "initiated" -> "registering" -> "active"
 
@@ -959,8 +956,9 @@ if err != nil {
     if errors.As(err, &sendlyErr) {
         switch sendlyErr.Code {
         case sendly.WhatsAppErrorCodeSendFailed:
-            // 502: the message provably never reached the carrier, so it was
-            // not sent and is safe to send again.
+            // 503: the message provably never reached WhatsApp, so it was
+            // not sent; the client already retried it 3 times under the
+            // same idempotency key, and it is safe to send again with it.
             log.Fatal("not sent, safe to send again: ", sendlyErr.Message)
         case sendly.WhatsAppErrorCodeSendUnconfirmed:
             // 409: the outcome is unknown. The message was marked failed and
@@ -982,9 +980,12 @@ A failed send is one of three errors:
 - 422 `whatsapp_send_failed`: WhatsApp refused the message. It is final,
   nothing was charged, and the API replays it for 24 hours under the same
   idempotency key.
-- 502 `whatsapp_send_failed`: the message provably never reached the
-  carrier, so it was not sent and is safe to send again. It is never cached,
-  so the client retries it like any 5xx under the same idempotency key.
+- 503 `whatsapp_send_failed`: the message provably never reached WhatsApp,
+  so it was not sent and is safe to resend under the same idempotency key.
+  It is never cached, and the client retries it automatically, up to 3 times
+  under the same key, before returning the error.
+  With `FallbackToSms`, a 422 means the SMS couldn't go either; see
+  [SMS fallback](#sms-fallback).
 - 409 `whatsapp_send_unconfirmed`: the outcome is unknown. The message was
   marked failed and refunded but may still be delivered, so check before
   sending it again (it could arrive twice). It is not retried automatically.
@@ -1053,7 +1054,7 @@ updated, err := client.WhatsApp.Senders.UpdateProfile(ctx, "+15125550123", &send
 
 Set or remove the profile photo. It must be a JPEG or PNG of at most 5 MB
 (checked by its bytes), and WhatsApp wants it square and at least 192 pixels
-wide (640 recommended). A 502 `whatsapp_profile_update_failed` means WhatsApp
+wide (640 recommended). A 503 `whatsapp_profile_update_failed` means WhatsApp
 refused it or couldn't be reached. The upload is sent once and never
 retried, not even by Go's HTTP transport when a reused keep-alive connection
 drops.
@@ -1128,9 +1129,8 @@ WhatsApp gets 404 `whatsapp_sender_not_connected`.
 Once a WhatsApp Business Account is connected, add more of your numbers to it
 without the Facebook step: pass its `BusinessAccountID` (from
 `Senders.List`) to `Signup.CreateWithOptions`, and WhatsApp sends the number a
-6-digit code by text (or a voice call with `VerificationMethod: "voice"`). The
-same $19 one-time fee applies, charged before the code is requested and
-refunded automatically if the signup fails. The signup comes back
+6-digit code by text (or a voice call with `VerificationMethod: "voice"`).
+Adding a number is free, like a Facebook connection. The signup comes back
 `"verifying"`, with no connect URL. While it waits, `Signup.Get` returns the
 code in `VerificationCode` once its text has arrived on the number, so you can
 submit it without reading the phone.
@@ -1173,21 +1173,21 @@ status, err = client.WhatsApp.Signup.Resend(ctx, signup.ID, sendly.WhatsAppVerif
   business name, else 400 `display_name_required`. A Facebook connection
   already in flight for the number is a 409 `whatsapp_signup_in_progress`.
 - WhatsApp refusing to send the code is a 422
-  `whatsapp_verification_start_failed` and being unreachable a 502 with the
-  same code; either way the signup failed and the fee is refunded, so start
+  `whatsapp_verification_start_failed` and being unreachable a 503 with the
+  same code; either way the signup failed, so start
   again. `CreateWithOptions` returns a 5xx, a timeout or a network error here
-  without retrying, because each retry could start, and charge, a new
+  without retrying, because each retry could start a new
   signup. Check `Senders.List`, or call again with the same
   `WithIdempotencyKey`.
 - Calling it again for a number that is verifying returns the same signup,
-  with no new charge and no second code. A verifying signup that began more
-  than 3 hours ago is expired and refunded, and a new one is started.
+  with no second code. A verifying signup that began more
+  than 3 hours ago is expired, and a new one is started.
   `Signup.Create` (the Facebook flow) for that number gets a 409
   `whatsapp_verification_in_progress`, with the signup's `id` in `Extra`.
 - A wrong code is a 422 `whatsapp_verification_code_invalid` with
   `attemptsRemaining`; after 5 wrong codes the signup fails with 409
-  `whatsapp_verification_failed` and the fee is refunded. 502
-  `whatsapp_verification_unavailable` doesn't count the attempt; retry. 502
+  `whatsapp_verification_failed`. 503
+  `whatsapp_verification_unavailable` doesn't count the attempt; retry. 503
   `whatsapp_activation_pending` means the code was accepted but connecting
   the number didn't finish; Sendly is alerted, so check it with `Signup.Get`
   shortly. `Verify` returns a 5xx, a timeout or a network error without
@@ -1202,6 +1202,81 @@ status, err = client.WhatsApp.Signup.Resend(ctx, signup.ID, sendly.WhatsAppVerif
   reasons: `verification_start_failed`, `verification_failed` and
   `verification_expired` (the signup was untouched for an hour, or began more
   than 3 hours ago when the number was added again).
+
+### SMS fallback
+
+Set `FallbackToSms` and a WhatsApp message that can't be delivered goes as an
+SMS from the same number instead. Left nil, it is not sent and the API treats
+it as false.
+
+```go
+fallback := true
+msg, err := client.Messages.SendWhatsApp(ctx, &sendly.SendWhatsAppMessageRequest{
+    To:            "+15555550100",
+    From:          "+15125550123",
+    Text:          "Your table is ready!",
+    FallbackToSms: &fallback,
+})
+if err != nil {
+    var validationErr *sendly.ValidationError
+    var sendlyErr *sendly.SendlyError
+    switch {
+    case errors.As(err, &sendlyErr) && sendlyErr.Code == "sms_fallback_unavailable":
+        // 403: this number can't send SMS to the recipient; nothing was sent
+        log.Fatal(sendlyErr.Message)
+    case errors.As(err, &validationErr) && validationErr.Code == "sms_fallback_not_supported":
+        // 422: Extra["reason"] is marketing_template, authentication_template
+        // or media_without_caption
+        log.Fatal(string(validationErr.Extra["reason"]))
+    case errors.As(err, &validationErr) && validationErr.Extra["fallback"] != nil:
+        // 422 whatsapp_window_closed or whatsapp_send_failed: the SMS couldn't
+        // go either. A closed window also carries the WhatsApp message's id.
+        var fb sendly.WhatsAppSmsFallback
+        _ = json.Unmarshal(validationErr.Extra["fallback"], &fb)
+        log.Fatal(validationErr.Code, ": ", fb.Status, " ", fb.Error)
+    }
+    log.Fatal(err)
+}
+fmt.Println(msg.Fallback.Status) // "pending", "sent", "failed", "unavailable" or "skipped"
+fmt.Println(msg.Fallback.Reason) // "window_closed", "whatsapp_refused" or "whatsapp_failed"
+if msg.FellBack() { // the SMS went instead (msg.Status is "failed")
+    sms, err := client.Messages.Get(ctx, msg.Fallback.MessageID)
+    if err == nil {
+        fmt.Println(sms.FallbackOf) // the WhatsApp message's id
+    }
+}
+```
+
+- It falls back when the 24-hour window is closed (the SMS goes at once:
+  free-form text and media go only within 24 hours of the customer's last
+  message, templates any time), when WhatsApp refuses the message, or when
+  WhatsApp reports it undeliverable later. Never after WhatsApp reports it
+  delivered or read, and at most once per message.
+- The number must already be able to send SMS to the recipient (a verified
+  toll-free number, or a local number on a 10DLC campaign, to a US or Canada
+  number), or the send is refused with 403 `sms_fallback_unavailable`
+  before anything is sent.
+- Marketing and authentication templates, and media without a caption, can't
+  fall back: 422 `sms_fallback_not_supported`. A utility template falls
+  back as its text header, body and footer with the variables filled in, and
+  its URL and phone buttons as `label: target`; quick replies are dropped and
+  listed in `Fallback.ContentDropped`.
+- Billing: the WhatsApp charge is refunded (a closed window is never charged)
+  and the SMS is billed as an SMS. A message that fell back at once comes
+  back with `Status` `"failed"`, `CreditsUsed` 0 and `Fallback.Status` `"sent"`; `Fallback.CreditsUsed` is
+  what the SMS cost.
+- No SMS goes on a 409 `whatsapp_send_unconfirmed` or a 503
+  `whatsapp_send_failed`. The status is `"unavailable"` when SMS rules stop it
+  (the contact opted out, a promotional-looking text in the recipient's quiet
+  hours, restricted content), with the reason in `Fallback.Error`, and
+  `"skipped"` for a WhatsApp error an SMS can't fix.
+- There is no time-based fallback: a message WhatsApp accepted but hasn't
+  delivered, for example to a phone that is off, stays `"pending"`, and no SMS
+  goes unless WhatsApp later reports a failure.
+- `Messages.Get` and `Messages.List` return the same `Fallback` on the WhatsApp message, so check a
+  pending one later. The SMS carries `FallbackOf`, the WhatsApp message's id.
+
+Guide: [Send WhatsApp with an SMS Fallback](https://sendly.live/docs/whatsapp/send-with-fallback).
 
 ## RCS
 

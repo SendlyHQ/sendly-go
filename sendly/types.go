@@ -47,6 +47,12 @@ type Message struct {
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 	// AiMetadata contains AI classification metadata for inbound messages.
 	AiMetadata *AiMetadata `json:"aiMetadata,omitempty"`
+	// Fallback is, on a WhatsApp message sent with FallbackToSms, what
+	// happened to its SMS fallback.
+	Fallback *WhatsAppSmsFallback `json:"fallback,omitempty"`
+	// FallbackOf is, on an SMS fallback, the id of the WhatsApp message it
+	// replaced.
+	FallbackOf string `json:"fallbackOf,omitempty"`
 }
 
 // AiMetadata contains AI classification results for an inbound message.
@@ -176,6 +182,72 @@ type SendWhatsAppMessageRequest struct {
 	Template *WhatsAppTemplateSendParams `json:"template,omitempty"`
 	// Metadata is custom JSON metadata to attach to the message (max 4KB).
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	// FallbackToSms defaults to false when nil. When true, a message
+	// WhatsApp can't deliver goes as an SMS from the same number, billed as
+	// an SMS: when the 24-hour window is closed, when WhatsApp refuses it,
+	// or when WhatsApp reports it undeliverable later. The number must be
+	// able to send SMS to the recipient (US and Canada only), or the API
+	// answers 403 sms_fallback_unavailable. Marketing and authentication
+	// templates, and media without a caption, can't fall back (422
+	// sms_fallback_not_supported). See WhatsAppMessage.Fallback.
+	FallbackToSms *bool `json:"fallbackToSms,omitempty"`
+}
+
+// WhatsAppSmsFallbackStatus is what happened to the SMS fallback of a
+// WhatsApp message. Values the API adds later decode as themselves.
+type WhatsAppSmsFallbackStatus string
+
+const (
+	// WhatsAppSmsFallbackStatusPending means WhatsApp's outcome isn't known yet.
+	WhatsAppSmsFallbackStatusPending WhatsAppSmsFallbackStatus = "pending"
+	// WhatsAppSmsFallbackStatusSent means the SMS went.
+	WhatsAppSmsFallbackStatusSent WhatsAppSmsFallbackStatus = "sent"
+	// WhatsAppSmsFallbackStatusFailed means the SMS carrier refused the SMS
+	// or credits ran out.
+	WhatsAppSmsFallbackStatusFailed WhatsAppSmsFallbackStatus = "failed"
+	// WhatsAppSmsFallbackStatusUnavailable means the SMS could no longer be
+	// sent from this number.
+	WhatsAppSmsFallbackStatusUnavailable WhatsAppSmsFallbackStatus = "unavailable"
+	// WhatsAppSmsFallbackStatusSkipped means the WhatsApp failure isn't one
+	// an SMS fixes, such as the recipient opting out.
+	WhatsAppSmsFallbackStatusSkipped WhatsAppSmsFallbackStatus = "skipped"
+)
+
+// WhatsAppSmsFallbackReason is what made a WhatsApp message fall back to
+// SMS. Values the API adds later decode as themselves.
+type WhatsAppSmsFallbackReason string
+
+const (
+	// WhatsAppSmsFallbackReasonWindowClosed means the 24-hour window was
+	// closed, so the SMS went at once.
+	WhatsAppSmsFallbackReasonWindowClosed WhatsAppSmsFallbackReason = "window_closed"
+	// WhatsAppSmsFallbackReasonWhatsAppRefused means WhatsApp refused the
+	// message when Sendly handed it over.
+	WhatsAppSmsFallbackReasonWhatsAppRefused WhatsAppSmsFallbackReason = "whatsapp_refused"
+	// WhatsAppSmsFallbackReasonWhatsAppFailed means WhatsApp reported the
+	// message undeliverable later.
+	WhatsAppSmsFallbackReasonWhatsAppFailed WhatsAppSmsFallbackReason = "whatsapp_failed"
+)
+
+// WhatsAppSmsFallback is the SMS fallback of a WhatsApp message sent with
+// FallbackToSms set to true.
+type WhatsAppSmsFallback struct {
+	// Channel is always "sms".
+	Channel string `json:"channel"`
+	// Status is what happened to the SMS; see WhatsAppSmsFallbackStatus.
+	Status WhatsAppSmsFallbackStatus `json:"status"`
+	// Reason is what made the message fall back; empty while it hasn't.
+	Reason WhatsAppSmsFallbackReason `json:"reason,omitempty"`
+	// MessageID is the SMS message's id, once it exists. Fetch it with
+	// MessagesService.Get; its FallbackOf is the WhatsApp message's id.
+	MessageID string `json:"messageId,omitempty"`
+	// CreditsUsed is the credits charged for the SMS.
+	CreditsUsed int `json:"creditsUsed,omitempty"`
+	// Error is why the SMS didn't go, in plain English.
+	Error string `json:"error,omitempty"`
+	// ContentDropped lists the template parts with no SMS form, such as
+	// "quick_replies" or "header_media".
+	ContentDropped []string `json:"contentDropped,omitempty"`
 }
 
 // WhatsAppSentTemplate is the template a WhatsApp message was sent with.
@@ -236,6 +308,16 @@ type WhatsAppMessage struct {
 	CreatedAt string `json:"createdAt"`
 	// Metadata contains custom JSON metadata attached to the message.
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	// Fallback is present when the send asked for FallbackToSms. When
+	// WhatsApp couldn't take the message and it went as an SMS, Status is
+	// "failed" and Fallback.Status is "sent" (check with FellBack).
+	Fallback *WhatsAppSmsFallback `json:"fallback,omitempty"`
+}
+
+// FellBack reports whether the message went as an SMS instead: Fallback is
+// present and its Status is "sent".
+func (m *WhatsAppMessage) FellBack() bool {
+	return m != nil && m.Fallback != nil && m.Fallback.Status == WhatsAppSmsFallbackStatusSent
 }
 
 // RcsSuggestedReply is a tappable reply chip on an RCS message. Tapping it
