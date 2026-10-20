@@ -562,7 +562,7 @@ func TestWhatsAppSignupCreateWithOptions_AddByCodeServerErrorIsNotRetried(t *tes
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&requests, 1)
 		w.WriteHeader(http.StatusBadGateway)
-		w.Write([]byte(`{"error":"whatsapp_verification_start_failed","message":"WhatsApp couldn't start verifying this number. Please try again shortly."}`))
+		w.Write([]byte(`{"error":"whatsapp_verification_start_failed","message":"WhatsApp couldn't start verifying this number. Any setup fee is refunded automatically. Please try again shortly."}`))
 	}))
 	defer server.Close()
 
@@ -576,7 +576,7 @@ func TestWhatsAppSignupCreateWithOptions_AddByCodeServerErrorIsNotRetried(t *tes
 		t.Fatalf("expected 502 whatsapp_verification_start_failed, got %T %v", err, err)
 	}
 	if got := atomic.LoadInt32(&requests); got != 1 {
-		t.Errorf("expected 1 request (a retry would start a new session), got %d", got)
+		t.Errorf("expected 1 request (a retry would start and charge a new session), got %d", got)
 	}
 }
 

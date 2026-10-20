@@ -17,8 +17,10 @@ import (
 // check 24-hour customer-service windows. Send WhatsApp messages with
 // MessagesService.SendWhatsApp.
 //
-// Connecting a number is free (no setup or monthly fee). The first
-// number always ends with a human step: Signup.Create returns a connect URL a
+// Connecting a number is a one-time $9.99 connection fee per number (no
+// monthly fee), charged to your card when you start connecting it, refunded
+// automatically if the connection fails and not refundable once the number
+// is connected. The first number always ends with a human step: Signup.Create returns a connect URL a
 // person must open in a browser and complete with a Facebook login to link
 // their WhatsApp Business Account. Further numbers can join an account the
 // workspace already connected without that step: Signup.CreateWithOptions
@@ -179,7 +181,7 @@ const (
 	WhatsAppErrorCodeAlreadyEnabled = "whatsapp_already_enabled"
 	// WhatsAppErrorCodeVerificationStartFailed: WhatsApp wouldn't send the
 	// code (422, final) or couldn't be reached (503). Either way the signup
-	// failed; start again.
+	// failed and its fee is refunded; start again.
 	WhatsAppErrorCodeVerificationStartFailed = "whatsapp_verification_start_failed"
 	// WhatsAppErrorCodeVerificationInProgress (409): Create was called
 	// without BusinessAccountID for a number that is waiting for its code;
@@ -195,7 +197,7 @@ const (
 	// tries are left.
 	WhatsAppErrorCodeVerificationCodeInvalid = "whatsapp_verification_code_invalid"
 	// WhatsAppErrorCodeVerificationFailed (409): 5 wrong codes. The signup
-	// failed.
+	// failed and its fee is refunded.
 	WhatsAppErrorCodeVerificationFailed = "whatsapp_verification_failed"
 	// WhatsAppErrorCodeVerificationBusy (409): another code for the number
 	// is being checked; retry in a moment.
@@ -291,9 +293,9 @@ type WhatsAppSignup struct {
 	// step it stays "registering" while WhatsApp activates the number.
 	// Activation usually takes a few minutes but can take hours. If it
 	// hasn't finished about 6 hours after the session began, the session
-	// fails with registration_timeout. A number added by code is
-	// "verifying" until its code is accepted. The API does not send
-	// "expired".
+	// fails with registration_timeout and the fee is refunded. A number
+	// added by code is "verifying" until its code is accepted. The API does
+	// not send "expired".
 	Status string `json:"status"`
 	// PhoneNumber is the number being connected, in E.164 format.
 	PhoneNumber string `json:"phoneNumber"`
@@ -302,8 +304,8 @@ type WhatsAppSignup struct {
 	// code, and nil otherwise.
 	BusinessAccountID *string `json:"businessAccountId,omitempty"`
 	// FailureReasons is why the signup failed, when Status is "failed". It
-	// holds one code: "setup_fee_payment_failed" (the connection couldn't be
-	// started), "signup_abandoned",
+	// holds one code: "setup_fee_payment_failed" (the $9.99 connection fee
+	// couldn't be charged), "signup_abandoned",
 	// "meta_exchange_failed", "registration_failed", "waba_already_connected",
 	// "waba_mismatch" (the WhatsApp Business Account chosen in the Facebook
 	// step doesn't hold the verified number), "registration_timeout"
@@ -312,7 +314,8 @@ type WhatsAppSignup struct {
 	// "verification_start_failed" (WhatsApp wouldn't send the code),
 	// "verification_failed" (5 wrong codes) or "verification_expired" (no
 	// code was accepted and the signup was untouched for an hour, or it began
-	// more than 3 hours ago when the number was added again).
+	// more than 3 hours ago when the number was added again). If the
+	// connection fails, the $9.99 fee is refunded automatically.
 	FailureReasons []string `json:"failureReasons,omitempty"`
 	// UpdatedAt is the ISO 8601 timestamp of the last status change.
 	UpdatedAt string `json:"updatedAt"`
@@ -587,25 +590,30 @@ type WhatsAppWindow struct {
 // Create starts connecting a number to WhatsApp. The number must be an
 // active number in your workspace, in E.164 format.
 //
-// Connecting a number is free (no setup or monthly fee). Returns a connect
-// URL. Completing the connection requires a human: hand the URL to your
+// Charges a one-time $9.99 connection fee per number (no monthly fee) to
+// your card and returns a connect URL. Completing the connection requires a human: hand the URL to your
 // user — they open it in a browser and log in with Facebook to link their
 // WhatsApp Business Account. Then poll Get until the status is "active".
 // Calling again for a number with an in-flight signup returns the existing
-// signup (same ConnectURL). Requires a live API key
+// signup (same ConnectURL) without charging again. Without a payment
+// method on file it answers 402 payment_method_required. Requires a live
+// API key
 // with the whatsapp:write scope (a test key gets 403
 // whatsapp_requires_live_key) and, in a team workspace, an owner or admin
 // with settings:write (otherwise a 403 insufficient_permissions). After the
 // Facebook step the signup stays "registering" while WhatsApp activates the
 // number. Activation usually takes a few minutes but can take hours. If it
 // hasn't finished about 6 hours after the session began, the session fails
-// with registration_timeout.
+// with registration_timeout and the fee is refunded. If the connection
+// fails, the $9.99 fee is refunded automatically; once the number is
+// connected it is not refundable, and a later disconnect gets nothing back.
 //
 // While WhatsApp connections are unavailable the API answers 503
-// whatsapp_unavailable, with retryAfter: 3600 in the body and a
-// Retry-After: 3600 header. Only signup returns it; no send does. The client
-// retries it like any 5xx before returning it as a *SendlyError. After 5
-// failed signups (or 20 cancelled) in 24 hours it answers 429
+// whatsapp_unavailable before charging anything, with retryAfter: 3600 in
+// the body and a Retry-After: 3600 header. Only signup returns it; no send
+// does. The client retries it like any 5xx before returning it as a
+// *SendlyError. After 5 failed, charged signups (or 20 cancelled) in 24
+// hours it answers 429
 // whatsapp_signup_limit_reached, returned as a *RateLimitError and not
 // retried; try again the next day.
 //
@@ -634,26 +642,27 @@ func (s *WhatsAppSignupService) Create(ctx context.Context, phoneNumber string) 
 // Account the workspace already connected, with no Facebook step. The number
 // must pass the same checks as for a Facebook connection, and the account
 // must be connected in this workspace with at least one active number
-// (otherwise 404 whatsapp_business_account_not_found). Adding a number is
-// free too; 429 whatsapp_signup_limit_reached applies as for Create, and 402
-// payment_method_required and payment_failed are not returned while
-// connecting is free. The signup comes back "verifying", with no ConnectURL,
-// and WhatsApp sends the number a 6-digit code by text (or a voice call with
+// (otherwise 404 whatsapp_business_account_not_found). The same one-time
+// $9.99 fee is charged before WhatsApp is asked for the code and refunded
+// automatically if the signup fails; 402 payment_method_required and
+// payment_failed and 429 whatsapp_signup_limit_reached apply as for Create.
+// The signup comes back "verifying", with no ConnectURL, and WhatsApp sends
+// the number a 6-digit code by text (or a voice call with
 // VerificationMethod "voice"). Submit it with Verify; while the session is
 // verifying, Get returns the code in VerificationCode once its text has
 // arrived on the number. Calling again for a number that is verifying
-// returns the same signup without sending a second code; a verifying
-// signup that began more than 3 hours ago is expired, and a new one is
-// started.
+// returns the same signup without charging again or sending a second code;
+// a verifying signup that began more than 3 hours ago is expired and
+// refunded, and a new one is started.
 //
 // Errors for a number added by code: 409 whatsapp_signup_in_progress (a
 // Facebook connection for the number is in flight), 409
 // whatsapp_already_enabled, 400 display_name_required, and
 // whatsapp_verification_start_failed when WhatsApp refused to send the code
-// (422, final) or couldn't be reached (503). Either way that signup failed;
-// start again. A 5xx, a timeout or a network error is returned without a
-// retry here, since the request may have run and each retry could start a
-// new signup and ask WhatsApp for another code. Nor does Go's HTTP transport
+// (422, final) or couldn't be reached (503). Either way that signup failed
+// and its fee is refunded; start again. A 5xx, a timeout or a network error
+// is returned without a retry here, since the request may have run and each
+// retry could start, and charge, a new signup. Nor does Go's HTTP transport
 // resend the request when a reused keep-alive connection drops. Check with
 // Senders.List, or call again with the same key passed to
 // WithIdempotencyKey. A retryable 429 is still retried, because the API
@@ -692,8 +701,8 @@ func (s *WhatsAppSignupService) CreateWithOptions(ctx context.Context, req *Crea
 // A code that isn't 6 digits is a 400 invalid_verification_code. A wrong
 // code is a 422 whatsapp_verification_code_invalid whose Extra
 // attemptsRemaining says how many tries are left; after 5 wrong codes the
-// signup fails with 409 whatsapp_verification_failed and
-// whatsapp_account.failed fires. 409 whatsapp_verification_busy means
+// signup fails with 409 whatsapp_verification_failed, the fee is refunded
+// and whatsapp_account.failed fires. 409 whatsapp_verification_busy means
 // another code is being checked; retry in a moment. 503
 // whatsapp_verification_unavailable means WhatsApp couldn't check the code
 // and the attempt isn't counted; retry. 503 whatsapp_activation_pending means
