@@ -22,7 +22,7 @@ const (
 	// DefaultTimeout is the default HTTP client timeout.
 	DefaultTimeout = 30 * time.Second
 	// Version is the SDK version.
-	Version = "4.5.1"
+	Version = "4.6.0"
 )
 
 // Client is the Sendly API client.
