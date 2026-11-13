@@ -53,6 +53,14 @@ type Message struct {
 	// FallbackOf is, on an SMS fallback, the id of the WhatsApp message it
 	// replaced.
 	FallbackOf string `json:"fallbackOf,omitempty"`
+	// MessageFormat is the channel and format the message was sent in:
+	// "sms", "mms", "whatsapp" or "rcs". Any other value decodes as itself.
+	MessageFormat string `json:"messageFormat,omitempty"`
+	// BatchID is the batch that sent the message. Empty unless it is a batch
+	// message.
+	BatchID string `json:"batchId,omitempty"`
+	// MediaUrls is the media sent with the message. Empty unless it has media.
+	MediaUrls []string `json:"mediaUrls,omitempty"`
 }
 
 // AiMetadata contains AI classification results for an inbound message.
@@ -722,6 +730,10 @@ type ScheduledMessage struct {
 	CancelledAt *string `json:"cancelledAt,omitempty"`
 	// MessageID is the ID of the sent message (after sending).
 	MessageID *string `json:"messageId,omitempty"`
+	// Timezone is the timezone the message was scheduled with, as sent, or
+	// "UTC" when none was sent. It is a label only: ScheduledAt is the send
+	// time. Nil when the API returns null.
+	Timezone *string `json:"timezone,omitempty"`
 }
 
 // ScheduleMessageRequest is the request to schedule a message.
@@ -731,7 +743,13 @@ type ScheduleMessageRequest struct {
 	// Text is the message content (required).
 	Text string `json:"text"`
 	// ScheduledAt is when to send the message in ISO 8601 format (required).
+	// Include an offset or Z: it is read as the timestamp it is, whatever
+	// Timezone says.
 	ScheduledAt string `json:"scheduledAt"`
+	// Timezone is an optional label such as "America/New_York", stored with
+	// the message and returned as sent (the API stores "UTC" when it is
+	// empty). It does not change how ScheduledAt is read.
+	Timezone string `json:"timezone,omitempty"`
 	// From is the sender ID or phone number (optional).
 	From string `json:"from,omitempty"`
 	// MessageType is the message type for compliance: "marketing" (default) or "transactional".
@@ -1381,6 +1399,41 @@ type Account struct {
 	Name *string `json:"name,omitempty"`
 	// CreatedAt is when the account was created.
 	CreatedAt string `json:"createdAt"`
+	// Organization is the workspace the API key belongs to, or nil for a key
+	// that belongs to no workspace. Its ID is the organization_id webhook
+	// payloads carry.
+	Organization *AccountOrganization `json:"organization"`
+	// Verification is the business verification, which decides where the
+	// account can send, or nil when there is none.
+	Verification *AccountVerification `json:"verification"`
+}
+
+// AccountOrganization is the workspace an API key belongs to.
+type AccountOrganization struct {
+	// ID is the workspace's ID, the organization_id webhook payloads carry.
+	ID string `json:"id"`
+	// Name is the workspace's name.
+	Name string `json:"name"`
+	// IsPersonal is true for the user's personal workspace.
+	IsPersonal bool `json:"isPersonal"`
+}
+
+// AccountVerification is the business verification reported with the
+// account.
+type AccountVerification struct {
+	// Status is where the verification is, such as "pending", "verified",
+	// "approved" or "rejected". Any other value decodes as itself.
+	Status string `json:"status"`
+	// Type is what the verification covers: "toll_free", "international" or
+	// "both".
+	Type string `json:"type"`
+	// Region is the verification's region: "us", "intl" or "both". Nil when
+	// it has none.
+	Region *string `json:"region"`
+	// SubmittedAt is when the verification was created.
+	SubmittedAt string `json:"submittedAt"`
+	// UpdatedAt is when the verification last changed.
+	UpdatedAt string `json:"updatedAt"`
 }
 
 // Credits represents credit balance information.
@@ -1485,6 +1538,56 @@ type EnterpriseAccount struct {
 	WorkspaceCount int                          `json:"workspaceCount"`
 	Workspaces     []EnterpriseWorkspaceSummary `json:"workspaces"`
 	Metadata       map[string]interface{}       `json:"metadata,omitempty"`
+	// Pagination is where a page of Workspaces.List or ListWithOptions sits.
+	// Nil for the compact list.
+	Pagination *EnterpriseWorkspacesPagination `json:"pagination,omitempty"`
+	// Summary totals every workspace, whatever the filters, on both the
+	// full and the compact list. Nil when the API leaves it out.
+	Summary *EnterpriseWorkspacesSummary `json:"summary,omitempty"`
+}
+
+// EnterpriseWorkspacesSummary is the totals over every workspace the
+// enterprise owns, before filters and paging.
+type EnterpriseWorkspacesSummary struct {
+	// TotalCredits is the credit balance of every workspace added up.
+	TotalCredits int `json:"totalCredits"`
+	// PendingVerifications is up to 10 workspaces whose verification is
+	// waiting.
+	PendingVerifications []EnterpriseWorkspacePendingVerification `json:"pendingVerifications"`
+	// VerificationBreakdown counts every workspace once by its
+	// verification status.
+	VerificationBreakdown EnterpriseWorkspaceVerificationBreakdown `json:"verificationBreakdown"`
+}
+
+// EnterpriseWorkspacePendingVerification is a workspace whose verification
+// is waiting.
+type EnterpriseWorkspacePendingVerification struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// EnterpriseWorkspaceVerificationBreakdown counts workspaces by
+// verification status.
+type EnterpriseWorkspaceVerificationBreakdown struct {
+	Verified int `json:"verified"`
+	Pending  int `json:"pending"`
+	// Submitted counts verifications submitted, in progress, or waiting on
+	// the carrier.
+	Submitted int `json:"submitted"`
+	Rejected  int `json:"rejected"`
+	// Unverified counts workspaces with no verification, or one in any
+	// other state.
+	Unverified int `json:"unverified"`
+}
+
+// EnterpriseWorkspacesPagination is where a page of workspaces sits in the
+// full, filtered list.
+type EnterpriseWorkspacesPagination struct {
+	Total      int  `json:"total"`
+	Limit      int  `json:"limit"`
+	Page       int  `json:"page"`
+	TotalPages int  `json:"totalPages"`
+	HasMore    bool `json:"hasMore"`
 }
 
 type EnterpriseWorkspace struct {
@@ -2241,6 +2344,8 @@ type ListConversationsRequest struct {
 	Offset int
 	// Status filters by conversation status.
 	Status ConversationStatus
+	// Label keeps only conversations with this label id (see LabelsService).
+	Label string
 }
 
 // GetConversationRequest is the request to get a single conversation.
@@ -2469,6 +2574,12 @@ type SuggestRepliesResponse struct {
 	BasedOnMessageId string `json:"basedOnMessageId,omitempty"`
 	// Model is the AI model used to generate the suggestions.
 	Model string `json:"model,omitempty"`
+	// Disabled is true when the workspace's enterprise account turned AI
+	// suggestions off. Suggestions is then empty.
+	Disabled bool `json:"disabled,omitempty"`
+	// Reason says why suggestions are off: "enterprise_policy". Empty
+	// unless Disabled is true.
+	Reason string `json:"reason,omitempty"`
 }
 
 // ============================================================================
@@ -2482,6 +2593,7 @@ type Rule struct {
 	Conditions map[string]interface{} `json:"conditions"`
 	Actions    map[string]interface{} `json:"actions"`
 	Priority   *int                   `json:"priority,omitempty"`
+	Enabled    *bool                  `json:"enabled,omitempty"`
 	CreatedAt  string                 `json:"createdAt"`
 	UpdatedAt  string                 `json:"updatedAt"`
 }
@@ -2505,6 +2617,7 @@ type UpdateRuleRequest struct {
 	Conditions map[string]interface{} `json:"conditions,omitempty"`
 	Actions    map[string]interface{} `json:"actions,omitempty"`
 	Priority   *int                   `json:"priority,omitempty"`
+	Enabled    *bool                  `json:"enabled,omitempty"`
 }
 
 // ============================================================================

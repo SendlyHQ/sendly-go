@@ -218,7 +218,9 @@ so retry those under the same key.
 Each `Messages` send method has a `WithOptions` twin that accepts request
 options — `SendWithOptions`, `ScheduleWithOptions`, `SendBatchWithOptions`,
 `SendGroupWithOptions`, `SendRcsWithOptions`, `SendWhatsAppWithOptions` — and
-the RCS registration, voice and calls methods take options directly. Other
+the RCS registration, voice, calls and short code application methods,
+`WhatsApp.Signup.CreateWithOptions` and `WhatsApp.Templates.Create` take
+options directly. Other
 writes, such as `Verify.Send`, `Campaigns.Send` or `Numbers.Buy`, take no
 options: their POSTs still carry the automatic key, but you can't pass your own.
 `SendBatch` sends no automatic key, because the API already deduplicates
@@ -357,6 +359,9 @@ scheduled, err := client.Messages.Schedule(ctx, &sendly.ScheduleMessageRequest{
     To:          "+15125550123",
     Text:        "Your appointment is tomorrow!",
     ScheduledAt: time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339),
+    // Optional label, stored and returned as sent ("UTC" when empty). It
+    // does not change how ScheduledAt is read: give ScheduledAt an offset.
+    Timezone: "America/New_York",
 })
 if err != nil {
     log.Fatal(err)
@@ -750,6 +755,7 @@ Threads of inbound and outbound messages, with labels, drafts and AI helpers.
 ```go
 convos, err := client.Conversations.List(ctx, &sendly.ListConversationsRequest{
     Status: sendly.ConversationStatusActive,
+    Label:  "lbl_xxx", // optional: only conversations with this label id
     Limit:  25,
 })
 for _, c := range convos.Data {
@@ -926,14 +932,14 @@ for _, s := range senders.Senders {
 // 4. Create a template (Meta reviews it, usually 24-48h). Category is
 //    required (UTILITY, AUTHENTICATION or MARKETING) with no default, and
 //    Update can't change it.
-template, err := client.WhatsApp.Templates.Create(ctx, &sendly.CreateWhatsAppTemplateRequest{
+template, err := client.WhatsApp.Templates.CreateWithOptions(ctx, &sendly.CreateWhatsAppTemplateRequest{
     Sender:   "+15125550123",
     Name:     "order_shipped",
     Language: "en_US",
     Category: "UTILITY",
     Body:     "Hi {{1}}, your order {{2}} has shipped!",
     Examples: map[string]string{"1": "Sam", "2": "#4821"},
-})
+}, sendly.WithIdempotencyKey("tpl-order-shipped")) // optional: a repeat returns the first answer
 fmt.Println(template.Status) // "PENDING"
 
 // 5. Check the 24-hour window, then send
@@ -1031,6 +1037,9 @@ for _, t := range templates.Templates {
 
 fixed, err := client.WhatsApp.Templates.Update(ctx, template.ID, &sendly.UpdateWhatsAppTemplateRequest{
     Body: "Hi {{1}}, order {{2}} is on its way.",
+    // Remove the footer and every button; an empty Buttons keeps them
+    ClearFooter:  true,
+    ClearButtons: true,
 })
 deleted, err := client.WhatsApp.Templates.Delete(ctx, template.ID)
 fmt.Println(deleted.ID, deleted.Deleted)
@@ -1496,18 +1505,62 @@ write to make it safe to retry across process restarts.
 
 ## Short Codes
 
-The SDK has **no typed helpers for short codes**. Apply for one in the
-dashboard, or call the REST endpoints directly with your own HTTP client and
-the same `Authorization: Bearer <key>` header:
+A short code is a 5 or 6 digit US sender. Getting one is an application:
+you fill it in, Sendly reviews it, the carrier forms are signed, Sendly files
+it, and each carrier certifies the code. Reads need `short_codes:read`;
+`Update` and `Submit` need `short_codes:write`. While short codes aren't
+enabled for the account every method returns a `*NotFoundError` with Code
+`short_codes_not_enabled`.
 
-| Method | Path | Scope |
-|--------|------|-------|
-| `GET` | `/api/v1/short_codes` | `short_codes:read` |
-| `POST` | `/api/v1/short_codes/requests` | `short_codes:write` |
-| `GET` | `/api/v1/short_codes/application` | `short_codes:read` |
-| `PUT` | `/api/v1/short_codes/application` | `short_codes:write` |
-| `POST` | `/api/v1/short_codes/application/preflight` | `short_codes:read` |
-| `POST` | `/api/v1/short_codes/application/submit` | `short_codes:write` |
+```go
+// Every application and code, newest first, each with its billing
+list, err := client.ShortCodes.List(ctx)
+for _, code := range list.ShortCodes {
+    if code.Status == sendly.ShortCodeStatusActive {
+        fmt.Println(*code.ShortCode)
+    }
+}
+
+// The application, the documents it needs, the quote and the billing
+view, err := client.ShortCodes.Application.Get(ctx)
+if !view.Editable {
+    fmt.Println(*view.LockMessage)
+}
+
+// Save answers (a nil field keeps its saved value)
+useCase := "Delivery alerts for Acme orders"
+frequency := "4 messages per month"
+view, err = client.ShortCodes.Application.Update(ctx, &sendly.ShortCodeApplicationInput{
+    UseCase:          &useCase,
+    MessageFrequency: &frequency,
+}, sendly.WithIdempotencyKey("acme-sc-save-1"))
+
+// Dry run against the carrier rules; saves nothing
+check, err := client.ShortCodes.Application.Check(ctx, nil)
+for _, issue := range check.Issues {
+    fmt.Println(issue.Path, issue.Message)
+}
+
+// Submit: charges the one-time setup fee to the card on file. Submitting
+// again while it is in review returns AlreadySubmitted and charges nothing.
+view, err = client.ShortCodes.Application.Submit(ctx, &sendly.ShortCodeSubmitInput{
+    AcceptTerms: true,
+}, sendly.WithIdempotencyKey("acme-sc-submit"))
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(view.Application.ReviewStatus) // "awaiting_review"
+if view.Payment != nil {
+    fmt.Println(view.Payment.Status, view.Payment.Charged)
+}
+```
+
+`Submit` answers 403 `verification_required` until the business is verified
+(the answers are saved anyway), 422 `short_code_invalid_application` with
+every issue, and 402 `payment_method_required`, `payment_failed` or
+`payment_requires_authentication` when the fee can't be taken.
+`POST /api/v1/short_codes/requests` has no helper; use `Application.Update`
+and `Application.Submit`.
 
 Progress does reach you through webhooks: subscribe to
 `sendly.WebhookEventShortCodeActionRequired`,
@@ -1765,6 +1818,10 @@ for _, d := range deliveries {
 }
 err = client.Webhooks.RetryDelivery(ctx, "whk_xxx", "del_xxx")
 
+// See what a recovery would send, without sending anything
+preview, err := client.Webhooks.RecoveryPreview(ctx, "whk_xxx", nil)
+fmt.Println(preview.AuditFailures.Total, preview.MissingFromMessages.Total)
+
 // Repeated failures trip a circuit breaker; close it again before replaying
 reset, err := client.Webhooks.ResetCircuit(ctx, "whk_xxx")
 
@@ -1912,6 +1969,17 @@ drop them from your `Events` list.
 // Get account information
 account, err := client.Account.Get(ctx)
 fmt.Printf("Email: %s\n", account.Email)
+
+// The workspace this key belongs to (nil for a key without one). Its ID is
+// the organization_id webhook payloads carry.
+if account.Organization != nil {
+    fmt.Printf("Workspace: %s (%s)\n", account.Organization.Name, account.Organization.ID)
+}
+
+// The business verification (nil when there is none)
+if account.Verification != nil {
+    fmt.Printf("Verification: %s (%s)\n", account.Verification.Status, account.Verification.Type)
+}
 
 // Check credit balance
 credits, err := client.Account.GetCredits(ctx)
@@ -2502,6 +2570,22 @@ account, _ := client.Enterprise.Workspaces.List(ctx)
 for _, w := range account.Workspaces {
     fmt.Println(w.ID, w.Name, w.CreditBalance)
 }
+// Totals over every workspace, whatever the filters
+if account.Summary != nil {
+    fmt.Println(account.Summary.TotalCredits, account.Summary.VerificationBreakdown.Pending)
+    for _, p := range account.Summary.PendingVerifications {
+        fmt.Println(p.ID, p.Name)
+    }
+}
+// Page, filter and sort
+page2, _ := client.Enterprise.Workspaces.ListWithOptions(ctx, &sendly.ListWorkspacesOptions{
+    Page:         2,
+    Limit:        100,
+    Search:       "acme",
+    Verification: "unverified",
+    Sort:         "credits_desc",
+    Tags:         []string{"tag_xxx"},
+})
 detail, _ := client.Enterprise.Workspaces.Get(ctx, "ws_xxx")
 _ = client.Enterprise.Workspaces.Delete(ctx, "ws_xxx")
 

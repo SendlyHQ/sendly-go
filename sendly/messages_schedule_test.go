@@ -3,6 +3,7 @@ package sendly
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -580,5 +581,59 @@ func TestMessagesCancelScheduled_ServerError(t *testing.T) {
 	}
 	if sendlyErr.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected status code 500, got %d", sendlyErr.StatusCode)
+	}
+}
+
+func TestMessagesSchedule_SendsTimezoneAndReadsItBack(t *testing.T) {
+	var body map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"id":"schd_1","to":"+15555550100","text":"Hi","scheduledAt":"2030-01-01T14:00:00.000Z","timezone":"America/New_York","status":"scheduled","creditsReserved":2,"segments":1,"senderType":"number_pool","createdAt":"2029-12-31T10:00:00.000Z"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	msg, err := client.Messages.Schedule(context.Background(), &ScheduleMessageRequest{
+		To:          "+15555550100",
+		Text:        "Hi",
+		ScheduledAt: "2030-01-01T09:00:00-05:00",
+		Timezone:    "America/New_York",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if body["timezone"] != "America/New_York" {
+		t.Errorf("expected timezone in body, got %v", body["timezone"])
+	}
+	if msg.Timezone == nil || *msg.Timezone != "America/New_York" {
+		t.Errorf("expected Timezone America/New_York, got %v", msg.Timezone)
+	}
+}
+
+func TestMessagesSchedule_OmitsTimezoneWhenUnset(t *testing.T) {
+	var raw []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := new(strings.Builder)
+		_, _ = io.Copy(buf, r.Body)
+		raw = []byte(buf.String())
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"id":"schd_1","to":"+15555550100","text":"Hi","scheduledAt":"2030-01-01T14:00:00.000Z","timezone":"UTC","status":"scheduled"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	_, err := client.Messages.Schedule(context.Background(), &ScheduleMessageRequest{
+		To:          "+15555550100",
+		Text:        "Hi",
+		ScheduledAt: "2030-01-01T14:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(string(raw), "timezone") {
+		t.Errorf("expected no timezone key, got %s", raw)
 	}
 }

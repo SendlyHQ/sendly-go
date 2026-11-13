@@ -22,6 +22,8 @@ type accountAPIResponse struct {
 		Name      *string `json:"name,omitempty"`
 		CreatedAt string  `json:"createdAt"`
 	} `json:"user"`
+	Organization *AccountOrganization `json:"organization"`
+	Verification *AccountVerification `json:"verification"`
 }
 
 // creditsAPIResponse is the API response with camelCase fields.
@@ -90,10 +92,12 @@ func (s *AccountService) Get(ctx context.Context) (*Account, error) {
 	}
 
 	return &Account{
-		ID:        apiResp.User.ID,
-		Email:     apiResp.User.Email,
-		Name:      apiResp.User.Name,
-		CreatedAt: apiResp.User.CreatedAt,
+		ID:           apiResp.User.ID,
+		Email:        apiResp.User.Email,
+		Name:         apiResp.User.Name,
+		CreatedAt:    apiResp.User.CreatedAt,
+		Organization: apiResp.Organization,
+		Verification: apiResp.Verification,
 	}, nil
 }
 

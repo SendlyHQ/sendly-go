@@ -41,6 +41,116 @@ func TestAccountGet_Success(t *testing.T) {
 	if account.CreatedAt != "2026-01-05T10:00:00.000Z" {
 		t.Errorf("expected CreatedAt '2026-01-05T10:00:00.000Z', got '%s'", account.CreatedAt)
 	}
+	want := &AccountOrganization{ID: "org_1", Name: "Acme", IsPersonal: false}
+	if !reflect.DeepEqual(account.Organization, want) {
+		t.Errorf("expected Organization %+v, got %+v", want, account.Organization)
+	}
+	if account.Verification != nil {
+		t.Errorf("expected nil Verification, got %+v", account.Verification)
+	}
+}
+
+func TestAccountGet_Verification(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{
+			"user": {"id": "usr_123", "email": "dev@example.com", "createdAt": "2026-01-05T10:00:00.000Z"},
+			"organization": {"id": "org_1", "name": "Acme", "isPersonal": false},
+			"verification": {
+				"status": "verified",
+				"type": "toll_free",
+				"region": "us",
+				"submittedAt": "2026-01-06T10:00:00.000Z",
+				"updatedAt": "2026-01-08T10:00:00.000Z"
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	account, err := client.Account.Get(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	region := "us"
+	want := &AccountVerification{
+		Status:      "verified",
+		Type:        "toll_free",
+		Region:      &region,
+		SubmittedAt: "2026-01-06T10:00:00.000Z",
+		UpdatedAt:   "2026-01-08T10:00:00.000Z",
+	}
+	if !reflect.DeepEqual(account.Verification, want) {
+		t.Errorf("expected Verification %+v, got %+v", want, account.Verification)
+	}
+}
+
+func TestAccountGet_VerificationWithoutRegion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{
+			"user": {"id": "usr_123", "email": "dev@example.com", "createdAt": "2026-01-05T10:00:00.000Z"},
+			"verification": {"status": "pending", "type": "international", "region": null, "submittedAt": "2026-01-06T10:00:00.000Z", "updatedAt": "2026-01-06T10:00:00.000Z"}
+		}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	account, err := client.Account.Get(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if account.Verification == nil || account.Verification.Status != "pending" || account.Verification.Type != "international" {
+		t.Fatalf("expected pending international Verification, got %+v", account.Verification)
+	}
+	if account.Verification.Region != nil {
+		t.Errorf("expected nil Region, got %q", *account.Verification.Region)
+	}
+}
+
+func TestAccountGet_NoOrganization(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{
+			"user": {"id": "usr_123", "email": "dev@example.com", "createdAt": "2026-01-05T10:00:00.000Z"},
+			"organization": null,
+			"credits": {"balance": "0", "reservedBalance": "0"}
+		}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	account, err := client.Account.Get(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if account.Organization != nil {
+		t.Errorf("expected nil Organization, got %+v", account.Organization)
+	}
+}
+
+func TestAccountGet_PersonalOrganization(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{
+			"user": {"id": "usr_123", "email": "dev@example.com", "createdAt": "2026-01-05T10:00:00.000Z"},
+			"organization": {"id": "org_2", "name": "Personal", "isPersonal": true}
+		}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	account, err := client.Account.Get(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if account.Organization == nil || account.Organization.ID != "org_2" || !account.Organization.IsPersonal {
+		t.Errorf("expected personal Organization org_2, got %+v", account.Organization)
+	}
 }
 
 func TestAccountGet_MissingUser(t *testing.T) {

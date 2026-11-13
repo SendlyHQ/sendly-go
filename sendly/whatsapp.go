@@ -523,6 +523,10 @@ type CreateWhatsAppTemplateRequest struct {
 
 // UpdateWhatsAppTemplateRequest edits a template. Supply only the fields to
 // change; omitted fields keep their current value.
+//
+// To remove the footer, header or buttons, set ClearFooter, ClearHeader or
+// ClearButtons (each wins over Footer, Header or Buttons). An empty Buttons,
+// nil or not, keeps the current buttons.
 type UpdateWhatsAppTemplateRequest struct {
 	Body   string `json:"body,omitempty"`
 	Footer string `json:"footer,omitempty"`
@@ -531,6 +535,42 @@ type UpdateWhatsAppTemplateRequest struct {
 	Header   string                   `json:"header,omitempty"`
 	Buttons  []WhatsAppTemplateButton `json:"buttons,omitempty"`
 	Examples map[string]string        `json:"examples,omitempty"`
+	// ClearFooter removes the template's footer.
+	ClearFooter bool `json:"-"`
+	// ClearHeader removes the template's header.
+	ClearHeader bool `json:"-"`
+	// ClearButtons removes every button from the template.
+	ClearButtons bool `json:"-"`
+}
+
+// MarshalJSON sends only the fields that are set, a cleared footer or header
+// as "", and cleared buttons as [].
+func (r UpdateWhatsAppTemplateRequest) MarshalJSON() ([]byte, error) {
+	body := struct {
+		Body     string                    `json:"body,omitempty"`
+		Footer   *string                   `json:"footer,omitempty"`
+		Header   *string                   `json:"header,omitempty"`
+		Buttons  *[]WhatsAppTemplateButton `json:"buttons,omitempty"`
+		Examples map[string]string         `json:"examples,omitempty"`
+	}{Body: r.Body, Examples: r.Examples}
+	empty := ""
+	if r.ClearFooter {
+		body.Footer = &empty
+	} else if r.Footer != "" {
+		body.Footer = &r.Footer
+	}
+	if r.ClearHeader {
+		body.Header = &empty
+	} else if r.Header != "" {
+		body.Header = &r.Header
+	}
+	if r.ClearButtons {
+		none := []WhatsAppTemplateButton{}
+		body.Buttons = &none
+	} else if len(r.Buttons) > 0 {
+		body.Buttons = &r.Buttons
+	}
+	return json.Marshal(body)
 }
 
 // WhatsAppTemplate is a WhatsApp message template.
@@ -1033,7 +1073,17 @@ func (s *WhatsAppTemplatesService) List(ctx context.Context) (*WhatsAppTemplateL
 // authentication template) or template_header_variable_unsupported (a header
 // containing {{n}}). A marketing template without an opt-out button only
 // gets a warning.
+//
+// An Idempotency-Key is sent automatically (see CreateWithOptions to supply
+// your own).
 func (s *WhatsAppTemplatesService) Create(ctx context.Context, req *CreateWhatsAppTemplateRequest) (*WhatsAppTemplate, error) {
+	return s.CreateWithOptions(ctx, req)
+}
+
+// CreateWithOptions is Create with request options. Pass WithIdempotencyKey
+// to supply your own key, so a repeat within 24 hours returns the first
+// answer instead of submitting the template again.
+func (s *WhatsAppTemplatesService) CreateWithOptions(ctx context.Context, req *CreateWhatsAppTemplateRequest, opts ...RequestOption) (*WhatsAppTemplate, error) {
 	if req == nil {
 		return nil, &ValidationError{APIError: APIError{Message: "request is required"}}
 	}
@@ -1054,7 +1104,7 @@ func (s *WhatsAppTemplatesService) Create(ctx context.Context, req *CreateWhatsA
 	}
 
 	var resp WhatsAppTemplate
-	if err := s.client.request(ctx, "POST", "/whatsapp/templates", req, &resp); err != nil {
+	if err := s.client.request(ctx, "POST", "/whatsapp/templates", req, &resp, opts...); err != nil {
 		return nil, err
 	}
 	return &resp, nil

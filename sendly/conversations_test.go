@@ -101,3 +101,89 @@ func TestConversationsAddLabels_KeepsTheIDWhenTheReadFails(t *testing.T) {
 		t.Errorf("expected ID conv_1, got %q", conversation.ID)
 	}
 }
+
+func TestConversationsSuggestReplies(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.URL.Path != "/conversations/conv_1/suggest-replies" {
+			t.Errorf("expected POST /conversations/conv_1/suggest-replies, got %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"suggestions":[{"text":"Yes, we open at 9am.","tone":"professional"},{"text":"See you at 9!","tone":"friendly"}],"basedOnMessageId":"msg_in_1","model":"gpt-4o-mini"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	resp, err := client.Conversations.SuggestReplies(context.Background(), "conv_1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Suggestions) != 2 || resp.Suggestions[1].Tone != "friendly" {
+		t.Errorf("expected 2 suggestions, the second friendly, got %+v", resp.Suggestions)
+	}
+	if resp.BasedOnMessageId != "msg_in_1" || resp.Model != "gpt-4o-mini" {
+		t.Errorf("expected basedOnMessageId and model, got %q %q", resp.BasedOnMessageId, resp.Model)
+	}
+	if resp.Disabled || resp.Reason != "" {
+		t.Errorf("expected suggestions enabled, got Disabled=%v Reason=%q", resp.Disabled, resp.Reason)
+	}
+}
+
+func TestConversationsSuggestReplies_DisabledByEnterprise(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"suggestions":[],"disabled":true,"reason":"enterprise_policy"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	resp, err := client.Conversations.SuggestReplies(context.Background(), "conv_1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Suggestions) != 0 {
+		t.Errorf("expected no suggestions, got %+v", resp.Suggestions)
+	}
+	if !resp.Disabled || resp.Reason != "enterprise_policy" {
+		t.Errorf("expected Disabled with reason enterprise_policy, got %v %q", resp.Disabled, resp.Reason)
+	}
+}
+
+func TestConversationsList_FiltersByLabel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" || r.URL.Path != "/conversations" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		q := r.URL.Query()
+		if q.Get("label") != "lbl_vip" || q.Get("status") != "active" || q.Get("limit") != "10" {
+			t.Errorf("unexpected query %s", r.URL.RawQuery)
+		}
+		w.Write([]byte(`{"data":[],"pagination":{"total":0,"limit":10,"offset":0,"hasMore":false}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	if _, err := client.Conversations.List(context.Background(), &ListConversationsRequest{
+		Limit:  10,
+		Status: "active",
+		Label:  "lbl_vip",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestConversationsList_OmitsLabelWhenUnset(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := r.URL.Query()["label"]; ok {
+			t.Errorf("expected no label, got %s", r.URL.RawQuery)
+		}
+		w.Write([]byte(`{"data":[],"pagination":{"total":0,"limit":20,"offset":0,"hasMore":false}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	if _, err := client.Conversations.List(context.Background(), &ListConversationsRequest{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

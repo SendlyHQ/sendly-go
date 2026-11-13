@@ -433,6 +433,84 @@ func TestMessagesGet_Success(t *testing.T) {
 	}
 }
 
+func TestMessagesGet_ReadsFormatBatchAndMedia(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" || r.URL.Path != "/messages/msg_mms" {
+			t.Errorf("expected GET /messages/msg_mms, got %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{
+			"id": "msg_mms",
+			"to": "+15555550100",
+			"from": "+15555550199",
+			"text": "Your receipt",
+			"status": "delivered",
+			"direction": "outbound",
+			"error": null,
+			"errorCode": null,
+			"retryCount": 0,
+			"segments": 1,
+			"creditsUsed": 4,
+			"isSandbox": false,
+			"createdAt": "2026-11-01T10:00:00.000Z",
+			"deliveredAt": "2026-11-01T10:00:02.000Z",
+			"message_format": "mms",
+			"messageFormat": "mms",
+			"batch_id": "batch_1",
+			"batchId": "batch_1",
+			"media_urls": ["https://cdn.example.com/r.png"],
+			"mediaUrls": ["https://cdn.example.com/r.png"]
+		}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	msg, err := client.Messages.Get(context.Background(), "msg_mms")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if msg.MessageFormat != "mms" {
+		t.Errorf("expected MessageFormat 'mms', got '%s'", msg.MessageFormat)
+	}
+	if msg.BatchID != "batch_1" {
+		t.Errorf("expected BatchID 'batch_1', got '%s'", msg.BatchID)
+	}
+	if len(msg.MediaUrls) != 1 || msg.MediaUrls[0] != "https://cdn.example.com/r.png" {
+		t.Errorf("expected one media URL, got %v", msg.MediaUrls)
+	}
+}
+
+func TestMessagesList_ReadsMessageFormat(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data": [
+			{"id": "msg_wa", "to": "+15555550100", "text": "Hi", "status": "sent", "message_format": "whatsapp", "messageFormat": "whatsapp"},
+			{"id": "msg_sms", "to": "+15555550100", "text": "Hi", "status": "sent", "message_format": "sms", "messageFormat": "sms", "fallbackOf": "msg_wa"}
+		], "count": 2}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	resp, err := client.Messages.List(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Data) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(resp.Data))
+	}
+	if resp.Data[0].MessageFormat != "whatsapp" || resp.Data[1].MessageFormat != "sms" {
+		t.Errorf("expected formats whatsapp and sms, got %q and %q", resp.Data[0].MessageFormat, resp.Data[1].MessageFormat)
+	}
+	if resp.Data[1].FallbackOf != "msg_wa" {
+		t.Errorf("expected FallbackOf 'msg_wa', got '%s'", resp.Data[1].FallbackOf)
+	}
+	if resp.Data[0].BatchID != "" || resp.Data[0].MediaUrls != nil {
+		t.Errorf("expected no batch or media, got %q %v", resp.Data[0].BatchID, resp.Data[0].MediaUrls)
+	}
+}
+
 func TestMessagesGet_EmptyID(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("should not make request with empty ID")

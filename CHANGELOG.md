@@ -1,5 +1,26 @@
 # sendly-go
 
+## 4.7.0
+
+### Minor Changes
+
+- **`SuggestRepliesResponse` gains `Disabled` and `Reason`.** When the workspace's enterprise account turned AI suggestions off, `Conversations.SuggestReplies` returns no suggestions, `Disabled` is true and `Reason` is `"enterprise_policy"`.
+- **`Account.Organization` is the workspace the key belongs to.** `Account.Get` fills it with an `*AccountOrganization` (`ID`, `Name`, `IsPersonal`); it is nil for a key that belongs to no workspace. `ID` is the `organization_id` webhook payloads carry.
+- **`Account.Verification` is the business verification.** `Account.Get` fills it with an `*AccountVerification` (`Status`, `Type`, `Region`, `SubmittedAt`, `UpdatedAt`); it is nil when the account has none, and `Region` is nil when the verification has no region.
+- **`Message` gains `MessageFormat`, `BatchID` and `MediaUrls`.** `MessageFormat` is the channel and format the message went in (`"sms"`, `"mms"`, `"whatsapp"` or `"rcs"`), `BatchID` the batch that sent it and `MediaUrls` its media. They are read from `Messages.Get` and `Messages.List`, and are empty when the API leaves them out.
+- **Preview a webhook recovery.** `Webhooks.RecoveryPreview(ctx, id, &RecoveryPreviewOptions{Since, Until, EventTypes})` reads `GET /webhooks/:id/recovery-preview` and returns the new `*WebhookRecoveryPreview` (`CircuitState`, `CircuitOpenedAt`, `FailureCount`, `AuditFailures`, `MissingFromMessages`, `Histogram`, `Samples`, `WindowSuggestion`, `Since`, `Until`): what `Redeliver` and `Backfill` would send for the window, without sending anything. Pass nil options for the last 24 hours and every event type; `EventTypes` goes as one comma-separated value, and the window is at most 7 days.
+- **Short codes.** `client.ShortCodes.List(ctx)` lists every short code application and code with its billing (`*ShortCodeList` of `ShortCode`). `client.ShortCodes.Application` has `Get(ctx)` (`*ShortCodeApplicationView`: the application, prefill, documents, quote, `Billing`, verification and carriers), `Update(ctx, *ShortCodeApplicationInput, opts...)` (PUT `/short_codes/application`), `Check(ctx, *ShortCodeApplicationInput)` (the preflight, `*ShortCodePreflight`) and `Submit(ctx, *ShortCodeSubmitInput, opts...)`, which charges the setup fee and reads `Submitted`, `AlreadySubmitted`, `Notified` and `Payment`. `Update` and `Submit` take `WithIdempotencyKey`. `ShortCodeStatus*` and `ShortCodeReviewStatus*` constants name the statuses; any other value decodes as itself.
+- **Your own idempotency key on WhatsApp template create.** `WhatsApp.Templates.CreateWithOptions(ctx, req, opts...)` takes request options, so `sendly.WithIdempotencyKey("...")` makes a repeat within 24 hours return the first answer. `Create(ctx, req)` is unchanged. `WhatsApp.Signup.CreateWithOptions` already took a key, for a Facebook connection as well as a number added by code.
+- **`ScheduleMessageRequest.Timezone`.** `Messages.Schedule` sends `timezone` when it is set. The API stores it with the message and returns it as sent (`"UTC"` when it is empty); it does not change how `ScheduledAt` is read, so give `ScheduledAt` an offset or `Z`. `ScheduledMessage` gains `Timezone` (`*string`), read from `Schedule`, `ListScheduled` and `GetScheduled`.
+- **Filter conversations by label.** `ListConversationsRequest.Label` sends `label` with `Conversations.List`, keeping only conversations with that label id. Empty leaves it out.
+- **Clear a WhatsApp template's footer, header or buttons.** `UpdateWhatsAppTemplateRequest` gains `ClearFooter`, `ClearHeader` and `ClearButtons`, sent as `"footer": ""`, `"header": ""` and `"buttons": []`, which remove them; each wins over `Footer`, `Header` or `Buttons`. An empty `Buttons` is still left out of the request, so it keeps the current buttons.
+- **Page, filter and sort enterprise workspaces.** `Enterprise.Workspaces.ListWithOptions(ctx, &ListWorkspacesOptions{Limit, Page, Search, Status, Verification, Sort, Tags, Compact})` sends them to `GET /enterprise/workspaces`; `Tags` goes as one comma-separated value and `Limit` is capped at 100. `List(ctx)` is unchanged and sends no query. `EnterpriseAccount.Pagination` (`Total`, `Limit`, `Page`, `TotalPages`, `HasMore`) says where the page sits; it is nil for the compact list.
+- **Workspace list summary.** `EnterpriseAccount.Summary` (`*EnterpriseWorkspacesSummary`) is read from `Workspaces.List` and `ListWithOptions`, full or compact: `TotalCredits`, `PendingVerifications` (up to 10 `EnterpriseWorkspacePendingVerification`, each with `ID` and `Name`) and `VerificationBreakdown` (`Verified`, `Pending`, `Submitted`, `Rejected`, `Unverified`). It covers every workspace, whatever the filters, and is nil when the API leaves it out.
+
+### Patch Changes
+
+- **`Webhooks.List` and `Webhooks.Get` no longer fail on stored metadata that is not an object.** The API returns a webhook's metadata as it was stored, which can be an array, string, number or boolean, and decoding it into `Webhook.Metadata` returned an error for the whole call. Such a value now reads as a nil `Metadata`.
+
 ## 4.5.0
 
 ### Minor Changes

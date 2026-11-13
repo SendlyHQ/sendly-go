@@ -369,3 +369,127 @@ func TestWorkspacesProvisionBulk_AcceptsTheAPILimit(t *testing.T) {
 		t.Errorf("expected 101 workspaces to be refused before sending, got %d requests", requests)
 	}
 }
+
+func TestWorkspacesListWithOptions_SendsTheFilters(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" || r.URL.Path != "/enterprise/workspaces" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		got := r.URL.Query()
+		want := map[string]string{
+			"limit":        "100",
+			"page":         "2",
+			"search":       "acme",
+			"status":       "active",
+			"verification": "unverified",
+			"sort":         "credits_desc",
+			"tags":         "tag_1,tag_2",
+			"compact":      "true",
+		}
+		for k, v := range want {
+			if got.Get(k) != v {
+				t.Errorf("expected %s=%s, got %q (query %s)", k, v, got.Get(k), r.URL.RawQuery)
+			}
+		}
+		w.Write([]byte(`{"workspaces":[{"id":"org_1","name":"Acme","creditBalance":500}],"summary":{},"maxWorkspaces":10,"workspacesUsed":1}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	resp, err := client.Enterprise.Workspaces.ListWithOptions(context.Background(), &ListWorkspacesOptions{
+		Limit:        250,
+		Page:         2,
+		Search:       "acme",
+		Status:       "active",
+		Verification: "unverified",
+		Sort:         "credits_desc",
+		Tags:         []string{"tag_1", "tag_2"},
+		Compact:      true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.MaxWorkspaces != 10 || len(resp.Workspaces) != 1 || resp.Workspaces[0].CreditBalance != 500 {
+		t.Errorf("unexpected response: %+v", resp)
+	}
+}
+
+func TestWorkspacesList_SendsNoQuery(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/enterprise/workspaces" || r.URL.RawQuery != "" {
+			t.Errorf("expected a bare GET /enterprise/workspaces, got %s?%s", r.URL.Path, r.URL.RawQuery)
+		}
+		w.Write([]byte(`{"workspaces":[],"pagination":{"total":51,"limit":50,"page":1,"totalPages":2,"hasMore":true},"maxWorkspaces":10,"workspacesUsed":0}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	resp, err := client.Enterprise.Workspaces.List(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := EnterpriseWorkspacesPagination{Total: 51, Limit: 50, Page: 1, TotalPages: 2, HasMore: true}
+	if resp.Pagination == nil || *resp.Pagination != want {
+		t.Errorf("expected pagination %+v, got %+v", want, resp.Pagination)
+	}
+}
+
+const fixtureWorkspacesSummary = `"summary":{"totalCredits":1500,"pendingVerifications":[{"id":"00000000-0000-4000-8000-000000000011","name":"Bright Smiles Dental"}],"verificationBreakdown":{"verified":1,"pending":1,"submitted":0,"rejected":0,"unverified":0}},"maxWorkspaces":25,"workspacesUsed":2`
+
+const fixtureWorkspacesPage = `{"workspaces":[{"id":"00000000-0000-4000-8000-000000000011","name":"Bright Smiles Dental","slug":"bright-smiles-dental","status":"active","suspendedAt":null,"suspendReason":null,"verificationStatus":"pending","rejectionReason":null,"verificationType":"toll_free","tollFreeNumber":null,"creditBalance":0,"keyCount":1,"messages30d":0,"delivered30d":0,"failed30d":0,"monthlyMessageQuota":null,"messagesThisMonth":0,"quotaResetAt":null,"createdAt":"2026-01-08T00:00:00.000Z","tags":[{"id":"00000000-0000-4000-8000-000000000030","enterpriseAccountId":"00000000-0000-4000-8000-000000000031","name":"dental","color":"#6366f1","createdAt":"2026-01-01T00:00:00.000Z"}]},{"id":"00000000-0000-4000-8000-000000000010","name":"Acme Clinics","slug":"acme-clinics","status":"active","suspendedAt":null,"suspendReason":null,"verificationStatus":"verified","rejectionReason":null,"verificationType":"toll_free","tollFreeNumber":"+15555550100","creditBalance":1500,"keyCount":1,"messages30d":120,"delivered30d":118,"failed30d":2,"monthlyMessageQuota":null,"messagesThisMonth":40,"quotaResetAt":null,"createdAt":"2026-01-01T00:00:00.000Z","tags":[]}],"pagination":{"total":2,"limit":50,"page":1,"totalPages":1,"hasMore":false},` + fixtureWorkspacesSummary + `}`
+
+const fixtureCompactWorkspaces = `{"workspaces":[{"id":"00000000-0000-4000-8000-000000000011","name":"Bright Smiles Dental","creditBalance":0},{"id":"00000000-0000-4000-8000-000000000010","name":"Acme Clinics","creditBalance":1500}],` + fixtureWorkspacesSummary + `}`
+
+func assertFixtureWorkspacesSummary(t *testing.T, summary *EnterpriseWorkspacesSummary) {
+	t.Helper()
+	want := EnterpriseWorkspacesSummary{
+		TotalCredits: 1500,
+		PendingVerifications: []EnterpriseWorkspacePendingVerification{
+			{ID: "00000000-0000-4000-8000-000000000011", Name: "Bright Smiles Dental"},
+		},
+		VerificationBreakdown: EnterpriseWorkspaceVerificationBreakdown{Verified: 1, Pending: 1},
+	}
+	if summary == nil || !reflect.DeepEqual(*summary, want) {
+		t.Errorf("expected summary %+v, got %+v", want, summary)
+	}
+}
+
+func TestWorkspacesList_ReadsTheFullListAndItsSummary(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(fixtureWorkspacesPage))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	resp, err := client.Enterprise.Workspaces.List(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Workspaces) != 2 || resp.Workspaces[1].TollFreeNumber == nil || *resp.Workspaces[1].TollFreeNumber != "+15555550100" {
+		t.Errorf("unexpected workspaces: %+v", resp.Workspaces)
+	}
+	if resp.Pagination == nil || resp.Pagination.Total != 2 || resp.MaxWorkspaces != 25 {
+		t.Errorf("unexpected page: %+v", resp)
+	}
+	assertFixtureWorkspacesSummary(t, resp.Summary)
+}
+
+func TestWorkspacesListWithOptions_ReadsTheCompactListAndItsSummary(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("compact") != "true" {
+			t.Errorf("expected compact=true, got %s", r.URL.RawQuery)
+		}
+		w.Write([]byte(fixtureCompactWorkspaces))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	resp, err := client.Enterprise.Workspaces.ListWithOptions(context.Background(), &ListWorkspacesOptions{Compact: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Workspaces) != 2 || resp.Workspaces[1].CreditBalance != 1500 || resp.Pagination != nil {
+		t.Errorf("unexpected compact list: %+v", resp)
+	}
+	assertFixtureWorkspacesSummary(t, resp.Summary)
+}

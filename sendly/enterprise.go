@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 type EnterpriseService struct {
@@ -180,8 +181,73 @@ func (s *WorkspacesService) Create(ctx context.Context, name, description string
 }
 
 func (s *WorkspacesService) List(ctx context.Context) (*EnterpriseAccount, error) {
+	return s.ListWithOptions(ctx, nil)
+}
+
+// ListWorkspacesOptions pages, filters and sorts WorkspacesService.ListWithOptions.
+// Zero values are not sent.
+type ListWorkspacesOptions struct {
+	// Limit is the page size, up to 100 (the API defaults to 50).
+	Limit int
+	// Page is the page, starting at 1.
+	Page int
+	// Search keeps workspaces whose name contains this, ignoring case.
+	Search string
+	// Status keeps workspaces with this status; "all", the API's default,
+	// keeps all.
+	Status string
+	// Verification keeps workspaces whose verification has this status;
+	// "unverified" keeps those with none, and "all", the default, keeps all.
+	Verification string
+	// Sort is "created_desc" (the default), "created_asc", "name_asc",
+	// "name_desc", "credits_desc" or "credits_asc".
+	Sort string
+	// Tags keeps workspaces with at least one of these tag ids. They are
+	// sent as one comma-separated value.
+	Tags []string
+	// Compact returns every workspace's id, name and balance instead,
+	// ignoring the other options.
+	Compact bool
+}
+
+// ListWithOptions lists the enterprise's workspaces with paging, filters and
+// sorting. Nil options list the first page with the API's defaults, as List
+// does.
+func (s *WorkspacesService) ListWithOptions(ctx context.Context, opts *ListWorkspacesOptions) (*EnterpriseAccount, error) {
+	params := make(map[string]string)
+	if opts != nil {
+		if opts.Limit > 0 {
+			limit := opts.Limit
+			if limit > 100 {
+				limit = 100
+			}
+			params["limit"] = strconv.Itoa(limit)
+		}
+		if opts.Page > 0 {
+			params["page"] = strconv.Itoa(opts.Page)
+		}
+		if opts.Search != "" {
+			params["search"] = opts.Search
+		}
+		if opts.Status != "" {
+			params["status"] = opts.Status
+		}
+		if opts.Verification != "" {
+			params["verification"] = opts.Verification
+		}
+		if opts.Sort != "" {
+			params["sort"] = opts.Sort
+		}
+		if len(opts.Tags) > 0 {
+			params["tags"] = strings.Join(opts.Tags, ",")
+		}
+		if opts.Compact {
+			params["compact"] = "true"
+		}
+	}
+
 	var resp EnterpriseAccount
-	if err := s.client.request(ctx, "GET", "/enterprise/workspaces", nil, &resp); err != nil {
+	if err := s.client.request(ctx, "GET", "/enterprise/workspaces"+buildQueryString(params), nil, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

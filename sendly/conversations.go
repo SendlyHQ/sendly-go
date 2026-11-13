@@ -25,6 +25,9 @@ func (s *ConversationsService) List(ctx context.Context, req *ListConversationsR
 		if req.Status != "" {
 			params["status"] = string(req.Status)
 		}
+		if req.Label != "" {
+			params["label"] = req.Label
+		}
 	}
 
 	path := "/conversations" + buildQueryString(params)

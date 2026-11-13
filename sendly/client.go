@@ -84,6 +84,8 @@ type Client struct {
 	Calls *CallsService
 	// Voice configures voice: numbers, emergency addresses, AI agents and their voices.
 	Voice *VoiceService
+	// ShortCodes lists the workspace's short codes and manages its short code application.
+	ShortCodes *ShortCodesService
 
 	rateLimiter *rate.Limiter
 }
@@ -199,6 +201,10 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 		Numbers: &VoiceNumbersService{client: c},
 		Agents:  &VoiceAgentsService{client: c},
 		Voices:  &VoicesService{client: c},
+	}
+	c.ShortCodes = &ShortCodesService{
+		client:      c,
+		Application: &ShortCodeApplicationService{client: c},
 	}
 
 	return c

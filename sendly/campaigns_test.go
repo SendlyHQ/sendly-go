@@ -360,3 +360,38 @@ func TestCampaignPreview_RoundTrip(t *testing.T) {
 		t.Errorf("round-trip changed the value:\n before %+v\n after  %+v", original, decoded)
 	}
 }
+
+func TestCampaignsCreate_SendsFieldNamesTheApiReads(t *testing.T) {
+	var body map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.URL.Path != "/campaigns" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("failed to decode request: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{` + wireCampaignRow + wireCampaignTwins + `}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	_, err := client.Campaigns.Create(context.Background(), &CreateCampaignRequest{
+		Name:           "Fall",
+		Text:           "Hello",
+		ContactListIDs: []string{"lst_1"},
+		TemplateID:     "tpl_1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := map[string]interface{}{
+		"name":             "Fall",
+		"text":             "Hello",
+		"contact_list_ids": []interface{}{"lst_1"},
+		"template_id":      "tpl_1",
+	}
+	if !reflect.DeepEqual(body, want) {
+		t.Errorf("expected body %v, got %v", want, body)
+	}
+}

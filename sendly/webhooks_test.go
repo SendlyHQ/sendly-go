@@ -3,6 +3,7 @@ package sendly
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -408,6 +409,7 @@ func TestWebhookAndKeyMethods_EscapeIDs(t *testing.T) {
 	client.Webhooks.ResetCircuit(ctx, "whk_1/x")
 	client.Webhooks.Redeliver(ctx, "whk_1/x", nil)
 	client.Webhooks.Backfill(ctx, "whk_1/x", nil)
+	client.Webhooks.RecoveryPreview(ctx, "whk_1/x", nil)
 	client.Webhooks.RotateSecret(ctx, "whk_1/x")
 	client.Account.GetAPIKey(ctx, "../../webhooks")
 	client.Account.GetAPIKeyUsage(ctx, "key_1?x=1")
@@ -422,6 +424,7 @@ func TestWebhookAndKeyMethods_EscapeIDs(t *testing.T) {
 		"POST /webhooks/whk_1%2Fx/reset-circuit?",
 		"POST /webhooks/whk_1%2Fx/redeliver?",
 		"POST /webhooks/whk_1%2Fx/backfill?",
+		"GET /webhooks/whk_1%2Fx/recovery-preview?",
 		"POST /webhooks/whk_1%2Fx/rotate-secret?",
 		"GET /account/keys/..%2F..%2Fwebhooks?",
 		"GET /account/keys/key_1%3Fx=1/usage?",
@@ -435,5 +438,145 @@ func TestWebhookAndKeyMethods_EscapeIDs(t *testing.T) {
 		if paths[i] != want[i] {
 			t.Errorf("request %d: expected %q, got %q", i, want[i], paths[i])
 		}
+	}
+}
+
+func TestWebhooksRecoveryPreview_SendsTheWindowAndDecodesCamelCase(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/webhooks/whk_1/recovery-preview" {
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+		query := r.URL.Query()
+		if query.Get("since") != "2026-01-01T00:00:00Z" || query.Get("until") != "2026-01-02T00:00:00Z" {
+			t.Errorf("unexpected window %s", r.URL.RawQuery)
+		}
+		if query.Get("event_types") != "message.delivered,message.failed" {
+			t.Errorf("expected comma-separated event_types, got %q", query.Get("event_types"))
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{
+			"circuitState": "open",
+			"circuitOpenedAt": "2026-01-01T08:00:00.000Z",
+			"failureCount": 12,
+			"auditFailures": {"total": 3, "byStatus": {"failed": 2, "cancelled": 1}, "byEventType": {"message.delivered": 2, "message.opt_out": 1}},
+			"missingFromMessages": {"total": 4, "byEventType": {"message.sent": 4}},
+			"histogram": [{"bucket": "2026-01-01T08:00:00.000Z", "missing": 4, "failed": 3}],
+			"samples": [{"id": "msg_1", "toMasked": "+1555***4567", "eventType": "message.delivered", "occurredAt": "2026-01-01T08:30:00.000Z"}],
+			"windowSuggestion": {"since": "2026-01-01T08:00:00.000Z", "until": "2026-01-01T10:00:00.000Z"},
+			"since": "2026-01-01T00:00:00.000Z",
+			"until": "2026-01-02T00:00:00.000Z"
+		}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	since := "2026-01-01T00:00:00Z"
+	until := "2026-01-02T00:00:00Z"
+
+	preview, err := client.Webhooks.RecoveryPreview(context.Background(), "whk_1", &RecoveryPreviewOptions{
+		Since:      &since,
+		Until:      &until,
+		EventTypes: []string{"message.delivered", "message.failed"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if preview.CircuitState != CircuitStateOpen {
+		t.Errorf("expected open, got %q", preview.CircuitState)
+	}
+	if preview.CircuitOpenedAt == nil || *preview.CircuitOpenedAt != "2026-01-01T08:00:00.000Z" {
+		t.Errorf("unexpected CircuitOpenedAt %v", preview.CircuitOpenedAt)
+	}
+	if preview.FailureCount != 12 {
+		t.Errorf("expected FailureCount 12, got %d", preview.FailureCount)
+	}
+	if preview.AuditFailures.Total != 3 || preview.AuditFailures.ByStatus["cancelled"] != 1 || preview.AuditFailures.ByEventType["message.opt_out"] != 1 {
+		t.Errorf("unexpected AuditFailures %+v", preview.AuditFailures)
+	}
+	if preview.MissingFromMessages.Total != 4 || preview.MissingFromMessages.ByEventType["message.sent"] != 4 {
+		t.Errorf("unexpected MissingFromMessages %+v", preview.MissingFromMessages)
+	}
+	if len(preview.Histogram) != 1 || preview.Histogram[0].Missing != 4 || preview.Histogram[0].Failed != 3 {
+		t.Errorf("unexpected Histogram %+v", preview.Histogram)
+	}
+	if len(preview.Samples) != 1 || preview.Samples[0].ToMasked != "+1555***4567" || preview.Samples[0].OccurredAt != "2026-01-01T08:30:00.000Z" {
+		t.Errorf("unexpected Samples %+v", preview.Samples)
+	}
+	if preview.WindowSuggestion == nil || preview.WindowSuggestion.Since != "2026-01-01T08:00:00.000Z" {
+		t.Errorf("unexpected WindowSuggestion %+v", preview.WindowSuggestion)
+	}
+	if preview.Until != "2026-01-02T00:00:00.000Z" {
+		t.Errorf("unexpected Until %q", preview.Until)
+	}
+}
+
+func TestWebhooksRecoveryPreview_NilOptionsSendNoQuery(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "" {
+			t.Errorf("expected no query, got %s", r.URL.RawQuery)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"circuitState":"closed","circuitOpenedAt":null,"failureCount":0,"auditFailures":{"total":0,"byStatus":{},"byEventType":{}},"missingFromMessages":{"total":0,"byEventType":{}},"histogram":[],"samples":[],"windowSuggestion":null,"since":"2026-01-01T00:00:00.000Z","until":"2026-01-02T00:00:00.000Z"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+
+	preview, err := client.Webhooks.RecoveryPreview(context.Background(), "whk_1", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if preview.CircuitOpenedAt != nil || preview.WindowSuggestion != nil {
+		t.Errorf("expected nil CircuitOpenedAt and WindowSuggestion, got %+v", preview)
+	}
+}
+
+const storedWebhookTemplate = `{"id":"whk_placeholder1","url":"https://localhost/sendly-contract-capture","events":["message.received"],"description":"Contract capture","mode":"test","is_active":true,"failure_count":0,"circuit_state":"closed","api_version":"2024-01","metadata":%s,"created_at":"2026-01-01T00:00:00.000Z","updated_at":"2026-01-01T00:00:00.000Z","total_deliveries":0,"successful_deliveries":0,"success_rate":0,"last_delivery_at":null}`
+
+func TestWebhooksGet_ReadsObjectMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/webhooks/whk_placeholder1" {
+			t.Errorf("expected path '/webhooks/whk_placeholder1', got '%s'", r.URL.Path)
+		}
+		w.Write([]byte(fmt.Sprintf(storedWebhookTemplate, `{"purpose":"contract-capture"}`)))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	webhook, err := client.Webhooks.Get(context.Background(), "whk_placeholder1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(webhook.Metadata, map[string]interface{}{"purpose": "contract-capture"}) {
+		t.Errorf("expected the stored metadata, got %v", webhook.Metadata)
+	}
+}
+
+func TestWebhooksList_ReadsMetadataThatIsNotAnObjectAsNil(t *testing.T) {
+	for _, stored := range []string{`["a",1]`, `"note"`, `7`, `true`, `null`} {
+		t.Run(stored, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/webhooks" {
+					t.Errorf("expected path '/webhooks', got '%s'", r.URL.Path)
+				}
+				w.Write([]byte("[" + fmt.Sprintf(storedWebhookTemplate, stored) + "]"))
+			}))
+			defer server.Close()
+
+			client := NewClient("test-api-key", WithBaseURL(server.URL))
+			webhooks, err := client.Webhooks.List(context.Background())
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(webhooks) != 1 || webhooks[0].ID != "whk_placeholder1" || webhooks[0].Mode != WebhookModeTest {
+				t.Fatalf("unexpected webhooks: %+v", webhooks)
+			}
+			if webhooks[0].Metadata != nil {
+				t.Errorf("expected nil metadata, got %v", webhooks[0].Metadata)
+			}
+		})
 	}
 }

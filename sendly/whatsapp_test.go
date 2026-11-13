@@ -882,3 +882,115 @@ func TestWhatsAppWindow_ValidationErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestWhatsAppTemplatesCreate_SendsCallerIdempotencyKey(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Idempotency-Key"); got != "tpl-order-shipped" {
+			t.Errorf("expected caller idempotency key, got %q", got)
+		}
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"id":"wat_1","name":"order_shipped","language":"en_US","category":"UTILITY","status":"PENDING"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	template, err := client.WhatsApp.Templates.CreateWithOptions(context.Background(), &CreateWhatsAppTemplateRequest{
+		Sender:   "+15559876543",
+		Name:     "order_shipped",
+		Language: "en_US",
+		Category: "UTILITY",
+		Body:     "Hi {{1}}",
+	}, WithIdempotencyKey("tpl-order-shipped"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if template.ID != "wat_1" {
+		t.Errorf("expected ID wat_1, got %s", template.ID)
+	}
+}
+
+func TestWhatsAppSignupCreateWithOptions_FacebookPathSendsCallerIdempotencyKey(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Idempotency-Key"); got != "signup-0100" {
+			t.Errorf("expected caller idempotency key, got %q", got)
+		}
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if _, ok := body["businessAccountId"]; ok {
+			t.Errorf("expected no businessAccountId, got %v", body)
+		}
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"id":"was_1","status":"initiated","connectUrl":"https://example.com/connect"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	signup, err := client.WhatsApp.Signup.CreateWithOptions(context.Background(), &CreateWhatsAppSignupRequest{
+		PhoneNumber: "+15559876543",
+	}, WithIdempotencyKey("signup-0100"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if signup.ID != "was_1" {
+		t.Errorf("expected ID was_1, got %s", signup.ID)
+	}
+}
+
+func TestWhatsAppTemplatesUpdate_ClearsFooterHeaderAndButtons(t *testing.T) {
+	var body map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PATCH" || r.URL.Path != "/whatsapp/templates/wat_1" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		w.Write([]byte(`{"id":"wat_1","name":"order_shipped","language":"en_US","category":"UTILITY","status":"PENDING"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	_, err := client.WhatsApp.Templates.Update(context.Background(), "wat_1", &UpdateWhatsAppTemplateRequest{
+		Footer:       "ignored",
+		ClearFooter:  true,
+		ClearHeader:  true,
+		Buttons:      []WhatsAppTemplateButton{{Type: "QUICK_REPLY", Text: "ignored"}},
+		ClearButtons: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if body["footer"] != "" || body["header"] != "" {
+		t.Errorf(`expected "footer":"" and "header":"", got %v`, body)
+	}
+	buttons, ok := body["buttons"].([]interface{})
+	if !ok || len(buttons) != 0 {
+		t.Errorf("expected buttons [], got %v", body["buttons"])
+	}
+	if _, ok := body["body"]; ok {
+		t.Errorf("expected body to be left out, got %v", body)
+	}
+}
+
+func TestWhatsAppTemplatesUpdate_LeavesUnsetFieldsOut(t *testing.T) {
+	var body map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		w.Write([]byte(`{"id":"wat_1","status":"PENDING"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	_, err := client.WhatsApp.Templates.Update(context.Background(), "wat_1", &UpdateWhatsAppTemplateRequest{
+		Footer:  "Reply STOP to opt out",
+		Buttons: []WhatsAppTemplateButton{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(body) != 1 || body["footer"] != "Reply STOP to opt out" {
+		t.Errorf("expected only the footer, got %v", body)
+	}
+}

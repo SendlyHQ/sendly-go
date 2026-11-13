@@ -2,6 +2,7 @@ package sendly
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -16,25 +17,25 @@ type WebhooksService struct {
 
 // webhookAPIResponse is the API response with snake_case fields.
 type webhookAPIResponse struct {
-	ID                   string                 `json:"id"`
-	URL                  string                 `json:"url"`
-	Events               []string               `json:"events"`
-	Description          *string                `json:"description,omitempty"`
-	Mode                 string                 `json:"mode"`
-	IsActive             bool                   `json:"is_active"`
-	FailureCount         int                    `json:"failure_count"`
-	LastFailureAt        *string                `json:"last_failure_at,omitempty"`
-	CircuitState         string                 `json:"circuit_state"`
-	CircuitOpenedAt      *string                `json:"circuit_opened_at,omitempty"`
-	APIVersion           string                 `json:"api_version"`
-	Metadata             map[string]interface{} `json:"metadata,omitempty"`
-	CreatedAt            string                 `json:"created_at"`
-	UpdatedAt            string                 `json:"updated_at"`
-	TotalDeliveries      int                    `json:"total_deliveries"`
-	SuccessfulDeliveries int                    `json:"successful_deliveries"`
-	SuccessRate          float64                `json:"success_rate"`
-	LastDeliveryAt       *string                `json:"last_delivery_at,omitempty"`
-	Secret               string                 `json:"secret,omitempty"`
+	ID                   string          `json:"id"`
+	URL                  string          `json:"url"`
+	Events               []string        `json:"events"`
+	Description          *string         `json:"description,omitempty"`
+	Mode                 string          `json:"mode"`
+	IsActive             bool            `json:"is_active"`
+	FailureCount         int             `json:"failure_count"`
+	LastFailureAt        *string         `json:"last_failure_at,omitempty"`
+	CircuitState         string          `json:"circuit_state"`
+	CircuitOpenedAt      *string         `json:"circuit_opened_at,omitempty"`
+	APIVersion           string          `json:"api_version"`
+	Metadata             json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt            string          `json:"created_at"`
+	UpdatedAt            string          `json:"updated_at"`
+	TotalDeliveries      int             `json:"total_deliveries"`
+	SuccessfulDeliveries int             `json:"successful_deliveries"`
+	SuccessRate          float64         `json:"success_rate"`
+	LastDeliveryAt       *string         `json:"last_delivery_at,omitempty"`
+	Secret               string          `json:"secret,omitempty"`
 }
 
 // webhookDeliveryAPIResponse is the API response for webhook delivery.
@@ -73,7 +74,7 @@ func transformWebhook(api webhookAPIResponse) Webhook {
 		CircuitState:         CircuitState(api.CircuitState),
 		CircuitOpenedAt:      api.CircuitOpenedAt,
 		APIVersion:           api.APIVersion,
-		Metadata:             api.Metadata,
+		Metadata:             objectMetadata(api.Metadata),
 		CreatedAt:            api.CreatedAt,
 		UpdatedAt:            api.UpdatedAt,
 		TotalDeliveries:      api.TotalDeliveries,
@@ -81,6 +82,16 @@ func transformWebhook(api webhookAPIResponse) Webhook {
 		SuccessRate:          api.SuccessRate,
 		LastDeliveryAt:       api.LastDeliveryAt,
 	}
+}
+
+// objectMetadata reads stored metadata as an object, or nil when it is
+// another JSON value.
+func objectMetadata(raw json.RawMessage) map[string]interface{} {
+	var metadata map[string]interface{}
+	if err := json.Unmarshal(raw, &metadata); err != nil {
+		return nil
+	}
+	return metadata
 }
 
 // transformDelivery converts API response to SDK type.
@@ -308,6 +319,98 @@ func (s *WebhooksService) Backfill(ctx context.Context, webhookID string, opts *
 
 	var result BackfillResult
 	if err := s.client.request(ctx, "POST", "/webhooks/"+url.PathEscape(webhookID)+"/backfill", body, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// RecoveryPreviewOptions configures Webhooks.RecoveryPreview.
+type RecoveryPreviewOptions struct {
+	// Since is the window's start, ISO-8601. Default: now − 24h.
+	Since *string
+	// Until is the window's end, ISO-8601. Default: now.
+	Until *string
+	// EventTypes are the event types to count, sent comma-separated.
+	// Default: all.
+	EventTypes []string
+}
+
+// WebhookRecoveryAuditFailures are the failed and cancelled deliveries in
+// the window: what Redeliver would send.
+type WebhookRecoveryAuditFailures struct {
+	Total       int            `json:"total"`
+	ByStatus    map[string]int `json:"byStatus"`
+	ByEventType map[string]int `json:"byEventType"`
+}
+
+// WebhookRecoveryMissing are the message events with no delivery in the
+// window: what Backfill would send.
+type WebhookRecoveryMissing struct {
+	Total       int            `json:"total"`
+	ByEventType map[string]int `json:"byEventType"`
+}
+
+// WebhookRecoveryHistogramBucket is one bucket of the preview's histogram.
+type WebhookRecoveryHistogramBucket struct {
+	Bucket  string `json:"bucket"`
+	Missing int    `json:"missing"`
+	Failed  int    `json:"failed"`
+}
+
+// WebhookRecoverySample is one affected event in a recovery preview.
+type WebhookRecoverySample struct {
+	ID         string `json:"id"`
+	ToMasked   string `json:"toMasked"`
+	EventType  string `json:"eventType"`
+	OccurredAt string `json:"occurredAt"`
+}
+
+// WebhookRecoveryWindow is the suggested outage window.
+type WebhookRecoveryWindow struct {
+	Since string `json:"since"`
+	Until string `json:"until"`
+}
+
+// WebhookRecoveryPreview is returned by Webhooks.RecoveryPreview. Its keys
+// are camelCase on the wire, unlike the other webhook responses.
+type WebhookRecoveryPreview struct {
+	CircuitState        CircuitState                     `json:"circuitState"`
+	CircuitOpenedAt     *string                          `json:"circuitOpenedAt"`
+	FailureCount        int                              `json:"failureCount"`
+	AuditFailures       WebhookRecoveryAuditFailures     `json:"auditFailures"`
+	MissingFromMessages WebhookRecoveryMissing           `json:"missingFromMessages"`
+	Histogram           []WebhookRecoveryHistogramBucket `json:"histogram"`
+	Samples             []WebhookRecoverySample          `json:"samples"`
+	WindowSuggestion    *WebhookRecoveryWindow           `json:"windowSuggestion"`
+	Since               string                           `json:"since"`
+	Until               string                           `json:"until"`
+}
+
+// RecoveryPreview counts what Redeliver and Backfill would send for a
+// window, without sending anything. The window is at most 7 days long.
+// Pass nil opts for the last 24 hours and every event type.
+func (s *WebhooksService) RecoveryPreview(ctx context.Context, webhookID string, opts *RecoveryPreviewOptions) (*WebhookRecoveryPreview, error) {
+	if webhookID == "" || !strings.HasPrefix(webhookID, "whk_") {
+		return nil, errors.New("invalid webhook ID format")
+	}
+
+	params := make(map[string]string)
+	if opts != nil {
+		if opts.Since != nil {
+			params["since"] = *opts.Since
+		}
+		if opts.Until != nil {
+			params["until"] = *opts.Until
+		}
+		if len(opts.EventTypes) > 0 {
+			params["event_types"] = strings.Join(opts.EventTypes, ",")
+		}
+	}
+
+	var result WebhookRecoveryPreview
+	path := "/webhooks/" + url.PathEscape(webhookID) + "/recovery-preview" + buildQueryString(params)
+	if err := s.client.request(ctx, "GET", path, nil, &result); err != nil {
 		return nil, err
 	}
 
