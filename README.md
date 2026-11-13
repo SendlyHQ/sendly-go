@@ -2284,6 +2284,40 @@ with the same `Kind`, the connection is merged into the saved one: a secret
 left nil is kept. Switching `Kind` to `sendly.VoiceAgentKindSendly` removes
 the connection and the signing secret.
 
+#### Test the connection
+
+`Test` reaches your agent the way a call would, without placing one. Pass
+`nil` to test the saved settings, or a `Connection` to try new ones before
+saving them (nothing is saved). A failed test is still a successful call, so
+check `OK`. A workspace can run 10 tests a minute.
+
+```go
+result, err := client.Voice.Agents.Test(ctx, agent.ID, nil)
+if err != nil {
+    log.Fatal(err)
+}
+if !result.OK {
+    fmt.Println(result.Outcome, result.Message) // e.g. auth_failed
+}
+for _, step := range result.Steps {
+    fmt.Println(step.Step, step.OK, step.Detail)
+}
+
+// Try a new SIP address before saving it
+result, err = client.Voice.Agents.Test(ctx, agent.ID, &sendly.TestVoiceAgentRequest{
+    Kind: sendly.VoiceAgentKindSip,
+    Connection: &sendly.VoiceAgentConnectionRequest{
+        URI:       "sip:+15125550100@sip.example.com",
+        Transport: sendly.VoiceAgentSipTransportTLS,
+    },
+})
+```
+
+`Outcome` is `ok`, `blocked_destination`, `unreachable`, `timeout`,
+`tls_failed`, `auth_required`, `auth_failed`, `not_found`, `rejected` or
+`bad_reply`; more may be added. A SIP server answering shows the address and
+credentials work, not which agent picks up.
+
 ## Error Handling
 
 ```go

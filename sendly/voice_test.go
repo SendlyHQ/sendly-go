@@ -1021,3 +1021,131 @@ func TestVoiceAgent_DecodesCustomLLMConnectionAndSendlyDefaults(t *testing.T) {
 		t.Errorf("expected an unknown kind to decode as itself, got %q", future.Kind)
 	}
 }
+
+const voiceAgentTestJSON = `{
+	"ok": true,
+	"outcome": "ok",
+	"message": "Your agent's server answered in 84 ms.",
+	"status": 200,
+	"latencyMs": 84,
+	"signed": false,
+	"steps": [
+		{"step": "address", "ok": true, "detail": "sip.example.com points to a public server."},
+		{"step": "connect", "ok": true, "detail": "Connected over TLS to sip.example.com:5061 in 41 ms."},
+		{"step": "reply", "ok": true, "detail": "SIP 200 OK"}
+	]
+}`
+
+func TestVoiceAgentsTest_WireBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.URL.Path != "/voice/agents/3c4d5e6f-7081-4293-a4b5-c6d7e8f90a1b/test" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		if key := r.Header.Get("Idempotency-Key"); key != "" {
+			t.Errorf("expected no Idempotency-Key, got '%s'", key)
+		}
+		body := decodeRequestBody(t, r)
+		if len(body) != 3 || body["kind"] != "sip" || body["instructions"] != "Say hello." {
+			t.Errorf("expected kind, connection and instructions, got %v", body)
+		}
+		connection, ok := body["connection"].(map[string]interface{})
+		if !ok || len(connection) != 2 || connection["uri"] != "sip:+15125550100@sip.example.com" || connection["transport"] != "tls" {
+			t.Errorf("unexpected connection %v", body["connection"])
+		}
+		w.Write([]byte(voiceAgentTestJSON))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	result, err := client.Voice.Agents.Test(context.Background(), "3c4d5e6f-7081-4293-a4b5-c6d7e8f90a1b", &TestVoiceAgentRequest{
+		Kind: VoiceAgentKindSip,
+		Connection: &VoiceAgentConnectionRequest{
+			URI:       "sip:+15125550100@sip.example.com",
+			Transport: VoiceAgentSipTransportTLS,
+		},
+		Instructions: "Say hello.",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.OK || result.Outcome != VoiceAgentTestOutcomeOK || result.Message != "Your agent's server answered in 84 ms." || result.Signed {
+		t.Errorf("unexpected result %+v", result)
+	}
+	if result.Status == nil || *result.Status != 200 || result.LatencyMs == nil || *result.LatencyMs != 84 {
+		t.Errorf("unexpected Status/LatencyMs %v/%v", result.Status, result.LatencyMs)
+	}
+	if len(result.Steps) != 3 || result.Steps[0].Step != VoiceAgentTestStepAddress || !result.Steps[0].OK ||
+		result.Steps[1].Step != VoiceAgentTestStepConnect || result.Steps[2].Step != VoiceAgentTestStepReply || result.Steps[2].Detail != "SIP 200 OK" {
+		t.Errorf("unexpected Steps %+v", result.Steps)
+	}
+}
+
+func TestVoiceAgentsTest_NilRequestSendsEmptyObject(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.URL.Path != "/voice/agents/3c4d5e6f-7081-4293-a4b5-c6d7e8f90a1b/test" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		body := decodeRequestBody(t, r)
+		if body == nil || len(body) != 0 {
+			t.Errorf("expected an empty object, got %v", body)
+		}
+		w.Write([]byte(`{"ok":false,"outcome":"auth_failed","message":"Your agent refused the key.","status":401,"latencyMs":null,"signed":true,
+			"steps":[{"step":"address","ok":true,"detail":"llm.example.com points to a public server."},{"step":"reply","ok":false,"detail":"HTTP 401"}]}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	result, err := client.Voice.Agents.Test(context.Background(), "3c4d5e6f-7081-4293-a4b5-c6d7e8f90a1b", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.OK || result.Outcome != VoiceAgentTestOutcomeAuthFailed || !result.Signed || result.LatencyMs != nil {
+		t.Errorf("unexpected result %+v", result)
+	}
+	if result.Status == nil || *result.Status != 401 || len(result.Steps) != 2 || result.Steps[1].OK {
+		t.Errorf("unexpected Status/Steps %v/%+v", result.Status, result.Steps)
+	}
+}
+
+func TestVoiceAgentsTest_UnknownOutcomeAndStep(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"ok":false,"outcome":"future_outcome","message":"Something new.","status":null,"latencyMs":null,"signed":false,
+			"steps":[{"step":"future_step","ok":false,"detail":"Something new happened."}]}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	result, err := client.Voice.Agents.Test(context.Background(), "3c4d5e6f-7081-4293-a4b5-c6d7e8f90a1b", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Outcome != "future_outcome" || result.Status != nil || len(result.Steps) != 1 || result.Steps[0].Step != "future_step" {
+		t.Errorf("expected unknown values to decode as themselves, got %+v", result)
+	}
+}
+
+func TestVoiceAgentsTest_RequiresID(t *testing.T) {
+	client := NewClient("test-api-key", WithBaseURL("http://127.0.0.1:0"))
+	_, err := client.Voice.Agents.Test(context.Background(), "", nil)
+	if _, ok := err.(*ValidationError); !ok {
+		t.Fatalf("expected *ValidationError, got %T", err)
+	}
+}
+
+func TestVoiceAgentsTest_RateLimited(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":"rate_limit_exceeded","message":"Too many tests. Try again in a minute."}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL), WithMaxRetries(0))
+	_, err := client.Voice.Agents.Test(context.Background(), "3c4d5e6f-7081-4293-a4b5-c6d7e8f90a1b", nil)
+	rateErr, ok := err.(*RateLimitError)
+	if !ok {
+		t.Fatalf("expected *RateLimitError, got %T", err)
+	}
+	if rateErr.Code != "rate_limit_exceeded" {
+		t.Errorf("unexpected Code %q", rateErr.Code)
+	}
+}

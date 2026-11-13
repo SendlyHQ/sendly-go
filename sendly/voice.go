@@ -558,6 +558,95 @@ type UpdateVoiceAgentRequest struct {
 	RotateSigningSecret bool `json:"rotateSigningSecret,omitempty"`
 }
 
+// TestVoiceAgentRequest is the body for VoiceAgentsService.Test. Leave it nil
+// to test the saved connection; only the fields you set are sent.
+type TestVoiceAgentRequest struct {
+	// Kind is the kind of the settings in Connection. Empty means the agent's
+	// own kind. Needed to test settings of another kind, such as on a
+	// VoiceAgentKindSendly agent before switching it.
+	Kind VoiceAgentKind `json:"kind,omitempty"`
+	// Connection is settings to test instead of the saved ones. Nothing is
+	// saved. For the agent's own kind, a secret left out is taken from the
+	// saved connection, while the host stays the same.
+	Connection *VoiceAgentConnectionRequest `json:"connection,omitempty"`
+	// Instructions is the system prompt to send (VoiceAgentKindCustomLLM),
+	// up to 4000 characters. Empty means the agent's instructions.
+	Instructions string `json:"instructions,omitempty"`
+}
+
+// VoiceAgentTestOutcome is what a connection test found, serialized as
+// outcome. A value added later decodes as its own value.
+type VoiceAgentTestOutcome string
+
+const (
+	// VoiceAgentTestOutcomeOK means the agent answered the way a call needs.
+	VoiceAgentTestOutcomeOK VoiceAgentTestOutcome = "ok"
+	// VoiceAgentTestOutcomeBlockedDestination means the host isn't a public
+	// address.
+	VoiceAgentTestOutcomeBlockedDestination VoiceAgentTestOutcome = "blocked_destination"
+	VoiceAgentTestOutcomeUnreachable        VoiceAgentTestOutcome = "unreachable"
+	VoiceAgentTestOutcomeTimeout            VoiceAgentTestOutcome = "timeout"
+	VoiceAgentTestOutcomeTLSFailed          VoiceAgentTestOutcome = "tls_failed"
+	// VoiceAgentTestOutcomeAuthRequired means the SIP server wants
+	// credentials the agent doesn't have.
+	VoiceAgentTestOutcomeAuthRequired VoiceAgentTestOutcome = "auth_required"
+	// VoiceAgentTestOutcomeAuthFailed means the key, token or credentials
+	// were refused.
+	VoiceAgentTestOutcomeAuthFailed VoiceAgentTestOutcome = "auth_failed"
+	// VoiceAgentTestOutcomeNotFound means a wrong path or SIP user.
+	VoiceAgentTestOutcomeNotFound VoiceAgentTestOutcome = "not_found"
+	// VoiceAgentTestOutcomeRejected means any other refusal.
+	VoiceAgentTestOutcomeRejected VoiceAgentTestOutcome = "rejected"
+	// VoiceAgentTestOutcomeBadReply means an answer outside the protocol.
+	VoiceAgentTestOutcomeBadReply VoiceAgentTestOutcome = "bad_reply"
+)
+
+// VoiceAgentTestStepName is one step of a connection test, serialized as
+// step. A value added later decodes as its own value.
+type VoiceAgentTestStepName string
+
+const (
+	// VoiceAgentTestStepAddress means the host resolved to a public address.
+	VoiceAgentTestStepAddress VoiceAgentTestStepName = "address"
+	// VoiceAgentTestStepConnect means a connection opened.
+	VoiceAgentTestStepConnect VoiceAgentTestStepName = "connect"
+	// VoiceAgentTestStepLogin means the SIP server accepted the credentials.
+	VoiceAgentTestStepLogin VoiceAgentTestStepName = "login"
+	// VoiceAgentTestStepReply means the agent answered as it should.
+	VoiceAgentTestStepReply VoiceAgentTestStepName = "reply"
+)
+
+// VoiceAgentTestStep is one step of a connection test.
+type VoiceAgentTestStep struct {
+	// Step is which step this is; see VoiceAgentTestStepName.
+	Step VoiceAgentTestStepName `json:"step"`
+	// OK is whether the step worked.
+	OK bool `json:"ok"`
+	// Detail is what happened at this step, in plain words.
+	Detail string `json:"detail"`
+}
+
+// VoiceAgentTest is the response from VoiceAgentsService.Test. A failed test
+// is still a successful request: check OK.
+type VoiceAgentTest struct {
+	// OK is whether the agent answered the way a call needs.
+	OK bool `json:"ok"`
+	// Outcome is VoiceAgentTestOutcomeOK, or why not.
+	Outcome VoiceAgentTestOutcome `json:"outcome"`
+	// Message is one or two sentences to show a person: what happened and
+	// what to change.
+	Message string `json:"message"`
+	// Status is the HTTP or SIP status the agent answered with, or nil.
+	Status *int `json:"status"`
+	// LatencyMs is how long the agent took to answer, or nil.
+	LatencyMs *int `json:"latencyMs"`
+	// Signed is whether the request carried X-Sendly-Signature, as calls do.
+	// Always false for VoiceAgentKindSip.
+	Signed bool `json:"signed"`
+	// Steps are each step tried, in order, up to the first that failed.
+	Steps []VoiceAgentTestStep `json:"steps"`
+}
+
 // DeletedVoiceAgent is the response from VoiceAgentsService.Delete.
 type DeletedVoiceAgent struct {
 	// ID is the deleted agent's ID.
@@ -755,6 +844,42 @@ func (s *VoiceAgentsService) Update(ctx context.Context, id string, req *UpdateV
 
 	var resp VoiceAgent
 	if err := s.client.request(ctx, "PATCH", "/voice/agents/"+voicePathSegment(id), req, &resp, opts...); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// Test reaches one of your own agents the way a call would, without placing
+// one, and reports what happened. Requires a live API key and the
+// calls:write scope.
+//
+// A VoiceAgentKindCustomLLM agent gets a signed, streamed chat completion
+// with a test message. A VoiceAgentKindWebsocket agent gets a signed
+// connection with connected, a start carrying test: true, half a second of
+// silence and a stop with reason test_finished. A VoiceAgentKindSip agent
+// gets an OPTIONS request, answered with the saved credentials if the server
+// asks; a SIP server answering shows the address and credentials work, not
+// which agent picks up.
+//
+// Pass req with Connection to test settings before saving them, or nil to
+// test the saved ones. A failed test is still a successful call: check the
+// response's OK. A workspace can run 10 tests a minute; the 11th returns a
+// *RateLimitError. Returns a *ValidationError (400) when the agent is a
+// VoiceAgentKindSendly agent and no Kind was sent, a *SendlyError (403, Code
+// VoiceErrorCodeByoAgentsNotEnabled) when the workspace's
+// bring-your-own-agent feature is off, and a *NotFoundError (Code
+// CallErrorCodeAgentNotFound) when the agent is not in this workspace. No
+// Idempotency-Key is sent.
+func (s *VoiceAgentsService) Test(ctx context.Context, id string, req *TestVoiceAgentRequest) (*VoiceAgentTest, error) {
+	if id == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "agent id is required"}}
+	}
+	if req == nil {
+		req = &TestVoiceAgentRequest{}
+	}
+
+	var resp VoiceAgentTest
+	if err := s.client.request(ctx, "POST", "/voice/agents/"+voicePathSegment(id)+"/test", req, &resp, withoutAutoIdempotencyKey()); err != nil {
 		return nil, err
 	}
 	return &resp, nil
