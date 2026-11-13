@@ -420,6 +420,7 @@ func TestCallsList_Filters(t *testing.T) {
 			"direction": "outbound",
 			"kind":      "pstn",
 			"agentId":   "3c4d5e6f-7081-4293-a4b5-c6d7e8f90a1b",
+			"agentKind": "custom_llm",
 			"to":        "+15555550123",
 			"from":      "+15555550188",
 		}
@@ -447,6 +448,7 @@ func TestCallsList_Filters(t *testing.T) {
 		Direction: CallDirectionOutbound,
 		Kind:      CallKindPstn,
 		AgentID:   "3c4d5e6f-7081-4293-a4b5-c6d7e8f90a1b",
+		AgentKind: VoiceAgentKindCustomLLM,
 		To:        "+15555550123",
 		From:      "+15555550188",
 	})
@@ -582,6 +584,9 @@ func TestCallsIDMethods_RequireID(t *testing.T) {
 	}
 	if _, err := client.Calls.Hangup(ctx, ""); !IsValidationError(err) {
 		t.Errorf("Hangup: expected ValidationError, got %T", err)
+	}
+	if _, err := client.Calls.Transfer(ctx, "", nil); !IsValidationError(err) {
+		t.Errorf("Transfer: expected ValidationError, got %T", err)
 	}
 	if _, err := client.Calls.Recording(ctx, ""); !IsValidationError(err) {
 		t.Errorf("Recording: expected ValidationError, got %T", err)
@@ -768,5 +773,193 @@ func TestCallsCreate_FromNumberNotSupported(t *testing.T) {
 	}
 	if validationErr.Code != CallErrorCodeFromNumberNotSupported {
 		t.Errorf("expected code %q, got %q", CallErrorCodeFromNumberNotSupported, validationErr.Code)
+	}
+}
+
+const callTransferPendingJSON = `{
+	"id": "6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+	"object": "call",
+	"kind": "pstn",
+	"channel": "phone",
+	"direction": "inbound",
+	"status": "active",
+	"handledBy": "agent",
+	"agentId": "3c4d5e6f-7081-4293-a4b5-c6d7e8f90a1b",
+	"from": "+15555550101",
+	"to": "+15555550100",
+	"callerName": "+15555550101",
+	"calleeName": "Front Desk",
+	"startedAt": "2026-11-13T00:00:00.000Z",
+	"answeredAt": "2026-11-13T00:00:05.000Z",
+	"endedAt": null,
+	"durationSecs": 0,
+	"creditsCharged": 10,
+	"billing": "metered",
+	"hangupClass": null,
+	"agentKind": "websocket",
+	"agentFallback": false,
+	"transfer": {"to": "+15555550102", "status": "pending", "failureReason": null},
+	"recordingStatus": null,
+	"metadata": {}
+}`
+
+func TestCallsTransfer_WithTo(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("expected POST request, got %s", r.Method)
+		}
+		if r.URL.Path != "/calls/6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f/transfer" {
+			t.Errorf("unexpected path '%s'", r.URL.Path)
+		}
+		if key := r.Header.Get("Idempotency-Key"); !autoKeyPattern.MatchString(key) {
+			t.Errorf("expected an auto-generated Idempotency-Key, got '%s'", key)
+		}
+		body := decodeRequestBody(t, r)
+		if len(body) != 1 || body["to"] != "+15555550102" {
+			t.Errorf("expected only to, got %v", body)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		w.Write([]byte(callTransferPendingJSON))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	call, err := client.Calls.Transfer(context.Background(), "6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f", &TransferCallRequest{To: "+15555550102"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if call.AgentKind == nil || *call.AgentKind != VoiceAgentKindWebsocket || call.AgentFallback {
+		t.Errorf("unexpected AgentKind/AgentFallback %v/%v", call.AgentKind, call.AgentFallback)
+	}
+	if call.Transfer == nil || call.Transfer.To != "+15555550102" || call.Transfer.Status != CallTransferStatusPending || call.Transfer.FailureReason != nil {
+		t.Errorf("unexpected Transfer %+v", call.Transfer)
+	}
+}
+
+func TestCallsTransfer_WithoutToSendsEmptyObject(t *testing.T) {
+	var requests int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		if r.RequestURI != "/calls/call%2F1/transfer" {
+			t.Errorf("expected escaped path, got '%s'", r.RequestURI)
+		}
+		if key := r.Header.Get("Idempotency-Key"); key != "transfer-once" {
+			t.Errorf("expected the caller's Idempotency-Key, got '%s'", key)
+		}
+		body := decodeRequestBody(t, r)
+		if len(body) != 0 {
+			t.Errorf("expected an empty JSON object body, got %v", body)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		w.Write([]byte(callTransferPendingJSON))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	ctx := context.Background()
+	if _, err := client.Calls.Transfer(ctx, "call/1", nil, WithIdempotencyKey("transfer-once")); err != nil {
+		t.Fatalf("nil request: %v", err)
+	}
+	if _, err := client.Calls.Transfer(ctx, "call/1", &TransferCallRequest{}, WithIdempotencyKey("transfer-once")); err != nil {
+		t.Fatalf("empty request: %v", err)
+	}
+	if got := atomic.LoadInt32(&requests); got != 2 {
+		t.Errorf("expected 2 requests, got %d", got)
+	}
+}
+
+func TestCallsTransfer_Errors(t *testing.T) {
+	cases := []struct {
+		status int
+		body   string
+		code   string
+		check  func(error) bool
+	}{
+		{http.StatusBadRequest, `{"error":"transfer_to_required","message":"Give a number to transfer to."}`, CallErrorCodeTransferToRequired, IsValidationError},
+		{http.StatusForbidden, `{"error":"outbound_not_enabled","message":"Calling out isn't switched on."}`, CallErrorCodeTransferOutboundNotEnabled, nil},
+		{http.StatusConflict, `{"error":"call_not_active","message":"The call is not in progress."}`, CallErrorCodeCallNotActive, nil},
+		{http.StatusConflict, `{"error":"call_not_transferable","message":"Not an incoming phone call."}`, CallErrorCodeCallNotTransferable, nil},
+		{http.StatusConflict, `{"error":"transfer_in_progress","message":"A transfer is already under way."}`, CallErrorCodeTransferInProgress, nil},
+	}
+	for _, tc := range cases {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(tc.status)
+			w.Write([]byte(tc.body))
+		}))
+		client := NewClient("test-api-key", WithBaseURL(server.URL))
+		_, err := client.Calls.Transfer(context.Background(), "6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f", nil)
+		server.Close()
+		if tc.check != nil && !tc.check(err) {
+			t.Errorf("%s: unexpected error type %T", tc.code, err)
+			continue
+		}
+		var code string
+		var status int
+		switch e := err.(type) {
+		case *ValidationError:
+			code, status = e.Code, http.StatusBadRequest
+		case *SendlyError:
+			code, status = e.Code, e.StatusCode
+		default:
+			t.Errorf("%s: unexpected error %T", tc.code, err)
+			continue
+		}
+		if code != tc.code || status != tc.status {
+			t.Errorf("expected %d/%q, got %d/%q", tc.status, tc.code, status, code)
+		}
+	}
+}
+
+func TestCallsTransfer_InsufficientCredits(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPaymentRequired)
+		w.Write([]byte(`{"error":"insufficient_credits","message":"Transfers need credits on the workspace. Current balance: 0.","creditsNeeded":1,"currentBalance":0}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	_, err := client.Calls.Transfer(context.Background(), "6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f", nil)
+	if !IsInsufficientCreditsError(err) {
+		t.Fatalf("expected InsufficientCreditsError, got %T", err)
+	}
+}
+
+func TestCall_DecodesFailedTransferAndFallback(t *testing.T) {
+	var call Call
+	payload := strings.Replace(strings.Replace(callTransferPendingJSON,
+		`"transfer": {"to": "+15555550102", "status": "pending", "failureReason": null}`,
+		`"transfer": {"to": "+15555550102", "status": "failed", "failureReason": "no_answer"}`, 1),
+		`"agentFallback": false`, `"agentFallback": true`, 1)
+	if err := json.Unmarshal([]byte(payload), &call); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !call.AgentFallback {
+		t.Errorf("expected AgentFallback true")
+	}
+	if call.Transfer == nil || call.Transfer.Status != CallTransferStatusFailed ||
+		call.Transfer.FailureReason == nil || *call.Transfer.FailureReason != CallTransferFailureReasonNoAnswer {
+		t.Errorf("unexpected Transfer %+v", call.Transfer)
+	}
+
+	var plain Call
+	if err := json.Unmarshal([]byte(callRingingJSON), &plain); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if plain.AgentKind != nil || plain.AgentFallback || plain.Transfer != nil {
+		t.Errorf("expected no AgentKind, AgentFallback or Transfer, got %+v", plain)
+	}
+}
+
+func TestWebhookCallData_DecodesAgentKindAndTransfer(t *testing.T) {
+	var call WebhookCallData
+	if err := json.Unmarshal([]byte(`{"id":"c","object":"call","agent_kind":"sip","agent_fallback":true,`+
+		`"transfer":{"to":"+15555550102","status":"completed","failure_reason":null}}`), &call); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if call.AgentKind == nil || *call.AgentKind != VoiceAgentKindSip || !call.AgentFallback {
+		t.Errorf("unexpected AgentKind/AgentFallback %v/%v", call.AgentKind, call.AgentFallback)
+	}
+	if call.Transfer == nil || call.Transfer.To != "+15555550102" || call.Transfer.Status != CallTransferStatusCompleted || call.Transfer.FailureReason != nil {
+		t.Errorf("unexpected Transfer %+v", call.Transfer)
 	}
 }

@@ -2,6 +2,7 @@ package sendly
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"strings"
 )
@@ -61,6 +62,64 @@ const (
 	VoiceModeAgent VoiceMode = "agent"
 )
 
+// VoiceAgentKind is who answers an agent's calls, serialized as kind. The
+// type is a plain string, so a kind added later decodes as its own value.
+type VoiceAgentKind string
+
+const (
+	// VoiceAgentKindSendly means Sendly writes the replies from the agent's
+	// instructions. It is the default.
+	VoiceAgentKindSendly VoiceAgentKind = "sendly"
+	// VoiceAgentKindCustomLLM means Sendly listens and speaks, and your chat
+	// completions endpoint writes each reply.
+	VoiceAgentKindCustomLLM VoiceAgentKind = "custom_llm"
+	// VoiceAgentKindSip means Sendly connects the caller to your agent's SIP
+	// address. A sip agent answers incoming calls only.
+	VoiceAgentKindSip VoiceAgentKind = "sip"
+	// VoiceAgentKindWebsocket means Sendly streams the call audio to your
+	// wss:// server and plays back what it sends. A websocket agent answers
+	// incoming calls only.
+	VoiceAgentKindWebsocket VoiceAgentKind = "websocket"
+)
+
+// VoiceAgentSipTransport is how a sip agent's call is carried, serialized as
+// transport. A value added later decodes as its own value.
+type VoiceAgentSipTransport string
+
+const (
+	VoiceAgentSipTransportAuto VoiceAgentSipTransport = "auto"
+	VoiceAgentSipTransportUDP  VoiceAgentSipTransport = "udp"
+	VoiceAgentSipTransportTCP  VoiceAgentSipTransport = "tcp"
+	VoiceAgentSipTransportTLS  VoiceAgentSipTransport = "tls"
+)
+
+// VoiceAgentSipMediaEncryption is whether a sip agent's call audio is
+// encrypted, serialized as mediaEncryption. A value added later decodes as
+// its own value.
+type VoiceAgentSipMediaEncryption string
+
+const (
+	VoiceAgentSipMediaEncryptionDisable VoiceAgentSipMediaEncryption = "disable"
+	VoiceAgentSipMediaEncryptionAllow   VoiceAgentSipMediaEncryption = "allow"
+	VoiceAgentSipMediaEncryptionRequire VoiceAgentSipMediaEncryption = "require"
+)
+
+// VoiceAgentAudioFormat is the audio format a websocket agent's server
+// sends and receives, serialized as audioFormat. A value added later decodes
+// as its own value.
+type VoiceAgentAudioFormat string
+
+const (
+	// VoiceAgentAudioFormatPcm16At16000 is 16-bit PCM at 16 kHz, the default.
+	VoiceAgentAudioFormatPcm16At16000 VoiceAgentAudioFormat = "pcm16_16000"
+	// VoiceAgentAudioFormatPcm16At24000 is 16-bit PCM at 24 kHz.
+	VoiceAgentAudioFormatPcm16At24000 VoiceAgentAudioFormat = "pcm16_24000"
+	// VoiceAgentAudioFormatPcm16At8000 is 16-bit PCM at 8 kHz.
+	VoiceAgentAudioFormatPcm16At8000 VoiceAgentAudioFormat = "pcm16_8000"
+	// VoiceAgentAudioFormatMulawAt8000 is mu-law at 8 kHz.
+	VoiceAgentAudioFormatMulawAt8000 VoiceAgentAudioFormat = "mulaw_8000"
+)
+
 // Error codes returned by the voice configuration endpoints, readable from
 // the Code field of the typed error. They can also return
 // CallErrorCodeVoiceNotEnabled, CallErrorCodeAgentNotFound,
@@ -102,6 +161,10 @@ const (
 	// message says the number couldn't be found for emergency registration:
 	// contact support.
 	VoiceErrorCodeCarrierRefused = "carrier_refused"
+	// VoiceErrorCodeByoAgentsNotEnabled (403, *SendlyError): Kind is one of
+	// your own (or Connection or RotateSigningSecret was sent) and the
+	// workspace's bring-your-own-agent feature is off. Support switches it on.
+	VoiceErrorCodeByoAgentsNotEnabled = "byo_agents_not_enabled"
 )
 
 // EmergencyAddress is the street address emergency services are sent to
@@ -198,9 +261,9 @@ type UpdateVoiceNumberRequest struct {
 type VoiceAgentTools struct {
 	// SendSms is true when the agent may text the person it is talking to.
 	SendSms bool `json:"sendSms"`
-	// TransferTo is a phone number in E.164 format stored with the agent, nil
-	// when unset. The agent doesn't transfer calls to it: when a caller asks
-	// for a person, it offers to pass a message on and takes their details.
+	// TransferTo is the number, in E.164 format, the agent transfers a
+	// caller to when asked for a person, and the number CallsService.Transfer
+	// uses when no To is given. Nil when the agent cannot transfer.
 	TransferTo *string `json:"transferTo"`
 }
 
@@ -236,6 +299,21 @@ type VoiceAgent struct {
 	Greeting string `json:"greeting"`
 	// Instructions tell the agent what it is for and how to behave; empty when unset.
 	Instructions string `json:"instructions"`
+	// Kind is who answers the agent's calls; see VoiceAgentKind.
+	Kind VoiceAgentKind `json:"kind"`
+	// Connection is how Sendly reaches your own agent, nil for a
+	// VoiceAgentKindSendly agent. Secrets are never returned.
+	Connection *VoiceAgentConnection `json:"connection"`
+	// HasSigningSecret is true when the agent has a signing secret. Your own
+	// agents do: Sendly signs every request to them with it, in an
+	// X-Sendly-Signature header of the form t=<unix seconds>,v1=<hex
+	// HMAC-SHA256>.
+	HasSigningSecret bool `json:"hasSigningSecret"`
+	// SigningSecret is the agent's signing secret, set only on the response
+	// that made it: Create of one of your own agents, Update that switches a
+	// sendly agent to one of your own, and Update with RotateSigningSecret.
+	// Save it now; it is never shown again.
+	SigningSecret string `json:"signingSecret,omitempty"`
 	// Tools are what the agent may do beyond talking.
 	Tools VoiceAgentTools `json:"tools"`
 	// CanSendSms is true when the agent holds its own scoped sending key. It
@@ -249,6 +327,165 @@ type VoiceAgent struct {
 	CreatedAt string `json:"createdAt"`
 	// UpdatedAt is when the agent was last changed (ISO 8601).
 	UpdatedAt string `json:"updatedAt"`
+}
+
+// VoiceAgentConnection is how Sendly reaches one of your own agents. Only
+// the fields of the agent's Kind are set; secrets are never returned, only
+// whether one is saved.
+type VoiceAgentConnection struct {
+	// BaseURL is your chat completions endpoint (VoiceAgentKindCustomLLM).
+	// Sendly sends POST {BaseURL}/chat/completions with streaming on.
+	BaseURL string `json:"baseUrl,omitempty"`
+	// Model is the model name sent in each request (VoiceAgentKindCustomLLM).
+	Model string `json:"model,omitempty"`
+	// HeaderNames are the names of the extra headers sent with each request
+	// (VoiceAgentKindCustomLLM). Their values are never returned.
+	HeaderNames []string `json:"headerNames,omitempty"`
+	// HasAPIKey is true when an API key is saved (VoiceAgentKindCustomLLM).
+	HasAPIKey bool `json:"hasApiKey,omitempty"`
+
+	// URI is your agent's SIP address, such as
+	// "sip:+15125550100@sip.example.com" (VoiceAgentKindSip).
+	URI string `json:"uri,omitempty"`
+	// Transport is how the call is carried (VoiceAgentKindSip).
+	Transport VoiceAgentSipTransport `json:"transport,omitempty"`
+	// MediaEncryption is whether the call audio is encrypted (VoiceAgentKindSip).
+	MediaEncryption VoiceAgentSipMediaEncryption `json:"mediaEncryption,omitempty"`
+	// Username is the digest auth username, nil when none (VoiceAgentKindSip).
+	Username *string `json:"username,omitempty"`
+	// HasPassword is true when a digest auth password is saved (VoiceAgentKindSip).
+	HasPassword bool `json:"hasPassword,omitempty"`
+	// Headers are the extra X- headers sent on the call (VoiceAgentKindSip).
+	Headers map[string]string `json:"headers,omitempty"`
+
+	// URL is your wss:// server (VoiceAgentKindWebsocket).
+	URL string `json:"url,omitempty"`
+	// AudioFormat is the audio format both ways (VoiceAgentKindWebsocket).
+	AudioFormat VoiceAgentAudioFormat `json:"audioFormat,omitempty"`
+	// HasAuthToken is true when an auth token is saved (VoiceAgentKindWebsocket).
+	HasAuthToken bool `json:"hasAuthToken,omitempty"`
+	// CustomParameters are sent to your server in the start message
+	// (VoiceAgentKindWebsocket).
+	CustomParameters map[string]string `json:"customParameters,omitempty"`
+}
+
+// VoiceAgentConnectionRequest sets how Sendly reaches one of your own agents
+// on create or update. Set the fields of the agent's Kind; only the fields
+// you set are sent. On an update that keeps the same Kind, the connection is
+// merged into the saved one, so fields left out keep their values. Hosts
+// must resolve to public internet addresses; a field that breaks a rule is
+// refused with a *ValidationError whose Message reads
+// "connection.<field>: <reason>".
+//
+// A secret (APIKey, Password, AuthToken) left nil keeps the saved one, and a
+// pointer to an empty string removes it (it is sent as null). A non-nil
+// Headers or CustomParameters map replaces the saved set, so an empty map
+// removes them.
+type VoiceAgentConnectionRequest struct {
+	// BaseURL is your chat completions endpoint (VoiceAgentKindCustomLLM):
+	// an https:// URL of up to 2048 characters, with no credentials or #. A
+	// trailing / is dropped. Required when the agent becomes custom_llm.
+	BaseURL string
+	// Model is the model name sent in each request (VoiceAgentKindCustomLLM):
+	// 1 to 200 letters, digits and _ . : / @ + -.
+	Model string
+	// APIKey is sent as Authorization: Bearer (VoiceAgentKindCustomLLM),
+	// 1 to 2048 printable ASCII characters.
+	APIKey *string
+
+	// URI is your agent's SIP address (VoiceAgentKindSip): sip: or sips:
+	// with a user part and a hostname (not an IP address), such as
+	// "sip:+15125550100@sip.example.com". Only ;transport= may follow.
+	URI string
+	// Transport defaults to VoiceAgentSipTransportTCP; a sips: address always
+	// uses TLS (VoiceAgentKindSip).
+	Transport VoiceAgentSipTransport
+	// MediaEncryption defaults to VoiceAgentSipMediaEncryptionAllow;
+	// VoiceAgentSipMediaEncryptionRequire needs the TLS transport
+	// (VoiceAgentKindSip).
+	MediaEncryption VoiceAgentSipMediaEncryption
+	// Username is the digest auth username (VoiceAgentKindSip). A pointer to
+	// an empty string removes it.
+	Username *string
+	// Password is the digest auth password (VoiceAgentKindSip).
+	Password *string
+
+	// Headers are extra headers with secret values. For
+	// VoiceAgentKindCustomLLM, up to 10 sent with each request; Authorization,
+	// Content-Type, Content-Length, Host, Connection, Transfer-Encoding,
+	// User-Agent and X-Sendly-* can't be set. For VoiceAgentKindSip, up to 10
+	// named X-... (not X-Sendly-...) sent on the call.
+	Headers map[string]string
+
+	// URL is your server (VoiceAgentKindWebsocket): a wss:// URL of up to
+	// 2048 characters, with no credentials or #.
+	URL string
+	// AudioFormat defaults to VoiceAgentAudioFormatPcm16At16000
+	// (VoiceAgentKindWebsocket).
+	AudioFormat VoiceAgentAudioFormat
+	// AuthToken is sent as Authorization: Bearer (VoiceAgentKindWebsocket).
+	AuthToken *string
+	// CustomParameters are up to 20 values sent to your server in the start
+	// message (VoiceAgentKindWebsocket). Keys are 1-40 letters, digits and
+	// _ . : -; values up to 500 characters.
+	CustomParameters map[string]string
+}
+
+// MarshalJSON sends only the fields that are set, a secret set to an empty
+// string as null so it is removed, and an empty map as {} so it replaces the
+// saved set.
+func (r VoiceAgentConnectionRequest) MarshalJSON() ([]byte, error) {
+	body := struct {
+		BaseURL          string                       `json:"baseUrl,omitempty"`
+		Model            string                       `json:"model,omitempty"`
+		APIKey           json.RawMessage              `json:"apiKey,omitempty"`
+		URI              string                       `json:"uri,omitempty"`
+		Transport        VoiceAgentSipTransport       `json:"transport,omitempty"`
+		MediaEncryption  VoiceAgentSipMediaEncryption `json:"mediaEncryption,omitempty"`
+		Username         *string                      `json:"username,omitempty"`
+		Password         json.RawMessage              `json:"password,omitempty"`
+		Headers          *map[string]string           `json:"headers,omitempty"`
+		URL              string                       `json:"url,omitempty"`
+		AudioFormat      VoiceAgentAudioFormat        `json:"audioFormat,omitempty"`
+		AuthToken        json.RawMessage              `json:"authToken,omitempty"`
+		CustomParameters *map[string]string           `json:"customParameters,omitempty"`
+	}{
+		BaseURL:         r.BaseURL,
+		Model:           r.Model,
+		URI:             r.URI,
+		Transport:       r.Transport,
+		MediaEncryption: r.MediaEncryption,
+		Username:        r.Username,
+		URL:             r.URL,
+		AudioFormat:     r.AudioFormat,
+	}
+	var err error
+	if body.APIKey, err = connectionSecretJSON(r.APIKey); err != nil {
+		return nil, err
+	}
+	if body.Password, err = connectionSecretJSON(r.Password); err != nil {
+		return nil, err
+	}
+	if body.AuthToken, err = connectionSecretJSON(r.AuthToken); err != nil {
+		return nil, err
+	}
+	if r.Headers != nil {
+		body.Headers = &r.Headers
+	}
+	if r.CustomParameters != nil {
+		body.CustomParameters = &r.CustomParameters
+	}
+	return json.Marshal(body)
+}
+
+func connectionSecretJSON(value *string) (json.RawMessage, error) {
+	if value == nil {
+		return nil, nil
+	}
+	if *value == "" {
+		return json.RawMessage("null"), nil
+	}
+	return json.Marshal(*value)
 }
 
 // VoiceAgentListResponse is the response from VoiceAgentsService.List.
@@ -277,6 +514,13 @@ type CreateVoiceAgentRequest struct {
 	// default: leave Tools nil and the agent may text the people it talks
 	// to. Set Tools.SendSms to false to stop it.
 	Tools *VoiceAgentToolsRequest `json:"tools,omitempty"`
+	// Kind is who answers the agent's calls. Empty means
+	// VoiceAgentKindSendly. Your own kinds need the workspace's
+	// bring-your-own-agent feature (VoiceErrorCodeByoAgentsNotEnabled).
+	Kind VoiceAgentKind `json:"kind,omitempty"`
+	// Connection is how Sendly reaches your own agent, matching Kind.
+	// Required when Kind is one of your own.
+	Connection *VoiceAgentConnectionRequest `json:"connection,omitempty"`
 }
 
 // UpdateVoiceAgentRequest is the body for VoiceAgentsService.Update. Only
@@ -300,6 +544,18 @@ type UpdateVoiceAgentRequest struct {
 	Instructions *string `json:"instructions,omitempty"`
 	// Tools changes the tools you set and keeps the rest.
 	Tools *VoiceAgentToolsRequest `json:"tools,omitempty"`
+	// Kind switches who answers the agent's calls. Switching to one of your
+	// own needs Connection; switching to VoiceAgentKindSendly removes the
+	// connection and the signing secret.
+	Kind VoiceAgentKind `json:"kind,omitempty"`
+	// Connection changes how Sendly reaches your own agent. With the same
+	// Kind it is merged into the saved connection.
+	Connection *VoiceAgentConnectionRequest `json:"connection,omitempty"`
+	// RotateSigningSecret makes a new signing secret for one of your own
+	// agents; the response carries it once in SigningSecret. The old secret
+	// stops working at once. Only true is sent. Refused with a
+	// *ValidationError on a VoiceAgentKindSendly agent.
+	RotateSigningSecret bool `json:"rotateSigningSecret,omitempty"`
 }
 
 // DeletedVoiceAgent is the response from VoiceAgentsService.Delete.
@@ -447,6 +703,11 @@ func (s *VoiceAgentsService) List(ctx context.Context) (*VoiceAgentListResponse,
 // the calls:write scope (and api_keys:write in a team workspace). Returns a
 // *SendlyError (409, Code VoiceErrorCodeAgentLimit) at 20 agents. An
 // Idempotency-Key is sent automatically.
+//
+// Set Kind and Connection to bring your own agent. The response's
+// SigningSecret is the only time the agent's signing secret is shown.
+// Returns a *SendlyError (403, Code VoiceErrorCodeByoAgentsNotEnabled) when
+// the workspace's bring-your-own-agent feature is off.
 func (s *VoiceAgentsService) Create(ctx context.Context, req *CreateVoiceAgentRequest, opts ...RequestOption) (*VoiceAgent, error) {
 	if req == nil {
 		return nil, &ValidationError{APIError: APIError{Message: "request is required"}}
@@ -480,6 +741,10 @@ func (s *VoiceAgentsService) Get(ctx context.Context, id string) (*VoiceAgent, e
 // the next call the agent handles. Requires a live API key and the
 // calls:write scope (and api_keys:write in a team workspace). Pass
 // WithIdempotencyKey to make the update replay-safe.
+//
+// The response's SigningSecret is set when the update made one: switching a
+// sendly agent to one of your own, or RotateSigningSecret. Save it then; it
+// is never shown again.
 func (s *VoiceAgentsService) Update(ctx context.Context, id string, req *UpdateVoiceAgentRequest, opts ...RequestOption) (*VoiceAgent, error) {
 	if id == "" {
 		return nil, &ValidationError{APIError: APIError{Message: "agent id is required"}}

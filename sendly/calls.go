@@ -17,8 +17,8 @@ import (
 // (an agent-handled outbound call costs 10 credits a minute), and only to
 // US and Canadian numbers.
 //
-// Reads need the calls:read scope; Create and Hangup need calls:write and a
-// live API key. While voice is not enabled for the workspace every method
+// Reads need the calls:read scope; Create, Hangup and Transfer need
+// calls:write and a live API key. While voice is not enabled for the workspace every method
 // returns a *NotFoundError with Code CallErrorCodeVoiceNotEnabled.
 type CallsService struct {
 	client *Client
@@ -121,6 +121,33 @@ const (
 	CallRecordingStatusFailed CallRecordingStatus = "failed"
 )
 
+// CallTransferStatus is where a call's latest transfer stands, serialized as
+// status. A value added later decodes as its own value.
+type CallTransferStatus string
+
+const (
+	// CallTransferStatusPending means the number is ringing.
+	CallTransferStatusPending CallTransferStatus = "pending"
+	// CallTransferStatusCompleted means the caller was handed over.
+	CallTransferStatusCompleted CallTransferStatus = "completed"
+	// CallTransferStatusFailed means the transfer did not go through and the
+	// caller is still on the call.
+	CallTransferStatusFailed CallTransferStatus = "failed"
+)
+
+// CallTransferFailureReason is why a transfer failed, serialized as
+// failureReason. A value added later decodes as its own value.
+type CallTransferFailureReason string
+
+const (
+	CallTransferFailureReasonBusy        CallTransferFailureReason = "busy"
+	CallTransferFailureReasonNoAnswer    CallTransferFailureReason = "no_answer"
+	CallTransferFailureReasonDeclined    CallTransferFailureReason = "declined"
+	CallTransferFailureReasonUnavailable CallTransferFailureReason = "unavailable"
+	// CallTransferFailureReasonUnknown means no definite answer came back.
+	CallTransferFailureReasonUnknown CallTransferFailureReason = "unknown"
+)
+
 // Error codes returned by the calls endpoints, readable from the Code field
 // of the typed error (for example err.(*SendlyError).Code).
 const (
@@ -146,6 +173,10 @@ const (
 	// CallErrorCodeAgentDisabled (409, *SendlyError): the agent is switched
 	// off; switch it on before calling it.
 	CallErrorCodeAgentDisabled = "agent_disabled"
+	// CallErrorCodeAgentKindUnsupported (409, *SendlyError): the agent's Kind
+	// is VoiceAgentKindSip or VoiceAgentKindWebsocket, which answer incoming
+	// calls only. VoiceAgentKindCustomLLM agents can place calls.
+	CallErrorCodeAgentKindUnsupported = "agent_kind_unsupported"
 	// CallErrorCodeInvalidMetadata (400, *ValidationError): Metadata has more
 	// than 20 keys, a key outside 1-40 chars of [A-Za-z0-9_.:-], or a value
 	// over 500 chars.
@@ -184,8 +215,25 @@ const (
 	// CallErrorCodeCallNotFound (404, *NotFoundError): no call with that ID
 	// in this workspace.
 	CallErrorCodeCallNotFound = "call_not_found"
-	// CallErrorCodeLiveKeyRequired (403, *SendlyError): Create and Hangup
-	// need a live API key.
+	// CallErrorCodeTransferToRequired (400, *ValidationError): Transfer was
+	// given no To and the agent has no transfer number.
+	CallErrorCodeTransferToRequired = "transfer_to_required"
+	// CallErrorCodeTransferOutboundNotEnabled (403, *SendlyError): the
+	// Transfer To isn't the agent's transfer number and calling out isn't
+	// switched on for the workspace.
+	CallErrorCodeTransferOutboundNotEnabled = "outbound_not_enabled"
+	// CallErrorCodeCallNotActive (409, *SendlyError): the call isn't in
+	// progress, so it can't be transferred.
+	CallErrorCodeCallNotActive = "call_not_active"
+	// CallErrorCodeCallNotTransferable (409, *SendlyError): the call isn't an
+	// incoming phone call.
+	CallErrorCodeCallNotTransferable = "call_not_transferable"
+	// CallErrorCodeTransferInProgress (409, *SendlyError): a transfer is
+	// already under way, or the call has had 3 transfer attempts. Get the
+	// call for the outcome before asking again, under a new idempotency key.
+	CallErrorCodeTransferInProgress = "transfer_in_progress"
+	// CallErrorCodeLiveKeyRequired (403, *SendlyError): Create, Hangup and
+	// Transfer need a live API key.
 	CallErrorCodeLiveKeyRequired = "live_key_required"
 	// CallErrorCodeInternal (500, *SendlyError): something went wrong on Sendly's side.
 	CallErrorCodeInternal = "voice_internal_error"
@@ -241,9 +289,21 @@ type Call struct {
 	// credits_exhausted, media_aborted, peer_connection_lost, room_closed,
 	// agent_left), agent outcomes (transferred, voicemail,
 	// voicemail_unavailable) and setup problems (setup_failed,
-	// agent_dispatch_failed, agent_api_unreachable, agent_already_ended).
-	// Anything unrecognised is reported as "ended".
+	// agent_dispatch_failed, agent_api_unreachable, agent_already_ended,
+	// agent_byo_failed). agent_remote_hangup means your own agent ended the
+	// call. Anything unrecognised is reported as "ended".
 	HangupClass *string `json:"hangupClass"`
+	// AgentKind is the kind of agent that answered, nil when no agent
+	// handled the call. Calls from before agent kinds existed read
+	// VoiceAgentKindSendly.
+	AgentKind *VoiceAgentKind `json:"agentKind"`
+	// AgentFallback is true when your own agent could not be reached or
+	// dropped, so Sendly said a short line and transferred the caller or
+	// took a message.
+	AgentFallback bool `json:"agentFallback"`
+	// Transfer is the call's latest transfer, nil when it was never
+	// transferred.
+	Transfer *CallTransfer `json:"transfer"`
 	// RecordingStatus is the recording's state, nil when there is nothing to report.
 	RecordingStatus *CallRecordingStatus `json:"recordingStatus"`
 	// Metadata is the string map attached on Create; empty when none.
@@ -251,6 +311,27 @@ type Call struct {
 	// Transcript is what was said, in order. Only present on Get, and only
 	// for agent-handled calls (empty when nothing was said).
 	Transcript []CallTranscriptLine `json:"transcript,omitempty"`
+}
+
+// CallTransfer is the latest transfer on a call.
+type CallTransfer struct {
+	// To is the number the caller is transferred to, in E.164 format.
+	To string `json:"to"`
+	// Status is where the transfer stands; see CallTransferStatus.
+	Status CallTransferStatus `json:"status"`
+	// FailureReason is why the transfer failed, nil unless Status is
+	// CallTransferStatusFailed.
+	FailureReason *CallTransferFailureReason `json:"failureReason"`
+}
+
+// TransferCallRequest is the body for CallsService.Transfer.
+type TransferCallRequest struct {
+	// To is the number to hand the caller to, in E.164 format: a US or
+	// Canadian number that is not premium-rate, not the number the caller
+	// dialled and not a number the agent answers. Empty uses the agent's
+	// transfer number (VoiceAgentTools.TransferTo). Any other number needs
+	// calling out switched on for the workspace.
+	To string `json:"to,omitempty"`
 }
 
 // CallTranscriptLine is one utterance in an agent-handled call's transcript.
@@ -295,6 +376,9 @@ type ListCallsRequest struct {
 	Kind CallKind
 	// AgentID keeps calls handled by one agent.
 	AgentID string
+	// AgentKind keeps calls answered by one kind of agent. Calls from before
+	// agent kinds existed count as VoiceAgentKindSendly.
+	AgentKind VoiceAgentKind
 	// To keeps calls to one number (E.164, exact match).
 	To string
 	// From keeps calls from one number (E.164, exact match).
@@ -361,9 +445,20 @@ type WebhookCallData struct {
 	CreditsCharged  int                  `json:"credits_charged"`
 	Billing         CallBilling          `json:"billing"`
 	HangupClass     *string              `json:"hangup_class"`
+	AgentKind       *VoiceAgentKind      `json:"agent_kind"`
+	AgentFallback   bool                 `json:"agent_fallback"`
+	Transfer        *WebhookCallTransfer `json:"transfer"`
 	RecordingStatus *CallRecordingStatus `json:"recording_status"`
 	Metadata        map[string]string    `json:"metadata"`
 	OrganizationID  *string              `json:"organization_id,omitempty"`
+}
+
+// WebhookCallTransfer is CallTransfer in snake_case, as WebhookCallData
+// carries it.
+type WebhookCallTransfer struct {
+	To            string                     `json:"to"`
+	Status        CallTransferStatus         `json:"status"`
+	FailureReason *CallTransferFailureReason `json:"failure_reason"`
 }
 
 // Create places a phone call that one of the workspace's AI agents handles.
@@ -374,8 +469,9 @@ type WebhookCallData struct {
 //
 // Refusals carry a Code from the CallErrorCode* constants, for example
 // CallErrorCodeE911Required (428) when the From number has no emergency
-// address, or an *InsufficientCreditsError when the balance doesn't cover
-// the first minute.
+// address, an *InsufficientCreditsError when the balance doesn't cover
+// the first minute, or CallErrorCodeAgentKindUnsupported (409) when the
+// agent is a sip or websocket agent.
 func (s *CallsService) Create(ctx context.Context, req *CreateCallRequest, opts ...RequestOption) (*Call, error) {
 	if req == nil {
 		return nil, &ValidationError{APIError: APIError{Message: "request is required"}}
@@ -411,6 +507,7 @@ func (s *CallsService) List(ctx context.Context, req *ListCallsRequest) (*CallLi
 		params["direction"] = string(req.Direction)
 		params["kind"] = string(req.Kind)
 		params["agentId"] = req.AgentID
+		params["agentKind"] = string(req.AgentKind)
 		params["to"] = req.To
 		params["from"] = req.From
 	}
@@ -450,6 +547,36 @@ func (s *CallsService) Hangup(ctx context.Context, id string, opts ...RequestOpt
 
 	var resp Call
 	if err := s.client.request(ctx, "POST", "/calls/"+url.PathEscape(id)+"/hangup", map[string]interface{}{}, &resp, opts...); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// Transfer hands the caller on an incoming phone call to another number,
+// whatever kind of agent is on the call, and returns the call with
+// Transfer.Status CallTransferStatusPending. A nil req, or an empty To, uses
+// the agent's transfer number. Follow the outcome with Get (Transfer.Status);
+// once the caller is handed over the call ends completed with HangupClass
+// transferred. A failed transfer leaves the caller on the call. Requires a
+// live API key and the calls:write scope. An Idempotency-Key is sent
+// automatically (see WithIdempotencyKey to supply your own).
+//
+// Refusals carry a Code: "invalid_request" (400, *ValidationError) for a To
+// that isn't allowed, CallErrorCodeTransferToRequired (400),
+// *InsufficientCreditsError (402) when the workspace has no credits left,
+// CallErrorCodeTransferOutboundNotEnabled (403), CallErrorCodeCallNotFound
+// (404), CallErrorCodeCallNotActive, CallErrorCodeCallNotTransferable or
+// CallErrorCodeTransferInProgress (409), and CallErrorCodeInternal (500).
+func (s *CallsService) Transfer(ctx context.Context, id string, req *TransferCallRequest, opts ...RequestOption) (*Call, error) {
+	if id == "" {
+		return nil, &ValidationError{APIError: APIError{Message: "call id is required"}}
+	}
+	if req == nil {
+		req = &TransferCallRequest{}
+	}
+
+	var resp Call
+	if err := s.client.request(ctx, "POST", "/calls/"+url.PathEscape(id)+"/transfer", req, &resp, opts...); err != nil {
 		return nil, err
 	}
 	return &resp, nil

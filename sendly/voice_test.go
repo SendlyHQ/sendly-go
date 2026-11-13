@@ -50,6 +50,9 @@ const voiceAgentJSON = `{
 	"language": "en-US",
 	"greeting": "Thanks for calling Acme, how can I help?",
 	"instructions": "Answer questions about opening hours.",
+	"kind": "sendly",
+	"connection": null,
+	"hasSigningSecret": false,
 	"tools": {"sendSms": true, "transferTo": "+15555550190"},
 	"canSendSms": true,
 	"callsHandled": 12,
@@ -776,5 +779,245 @@ func TestVoice_ClientSideValidation(t *testing.T) {
 		if !IsValidationError(err) {
 			t.Errorf("%s: expected ValidationError, got %T (%v)", name, err, err)
 		}
+	}
+}
+
+const voiceAgentWebsocketJSON = `{
+	"id": "4d5e6f70-8192-4a3b-b5c6-d7e8f90a1b2c",
+	"object": "voice_agent",
+	"name": "Own agent",
+	"enabled": true,
+	"kind": "websocket",
+	"connection": {
+		"url": "wss://agent.example.com/calls",
+		"audioFormat": "pcm16_24000",
+		"hasAuthToken": true,
+		"customParameters": {"tenant": "acme"}
+	},
+	"hasSigningSecret": true,
+	"signingSecret": "whsec_byo_0123456789abcdef",
+	"voice": "ashley",
+	"voiceLabel": "Ashley (US, warm)",
+	"language": "en-US",
+	"greeting": "",
+	"instructions": "",
+	"tools": {"sendSms": false, "transferTo": "+15555550190"},
+	"canSendSms": true,
+	"callsHandled": 0,
+	"avgDurationSecs": 0,
+	"createdAt": "2026-11-13T17:00:00.000Z",
+	"updatedAt": "2026-11-13T17:00:00.000Z"
+}`
+
+func TestVoiceAgentsCreate_ByoKindAndConnection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.URL.Path != "/voice/agents" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		body := decodeRequestBody(t, r)
+		if len(body) != 3 || body["name"] != "Own agent" || body["kind"] != "websocket" {
+			t.Errorf("expected name, kind and connection, got %v", body)
+		}
+		connection, ok := body["connection"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected a connection object, got %v", body["connection"])
+		}
+		expected := map[string]interface{}{
+			"url":         "wss://agent.example.com/calls",
+			"audioFormat": "pcm16_24000",
+			"authToken":   "tok_live_123",
+		}
+		for key, want := range expected {
+			if connection[key] != want {
+				t.Errorf("expected connection.%s=%v, got %v", key, want, connection[key])
+			}
+		}
+		params, ok := connection["customParameters"].(map[string]interface{})
+		if !ok || len(params) != 1 || params["tenant"] != "acme" {
+			t.Errorf("unexpected customParameters %v", connection["customParameters"])
+		}
+		if len(connection) != len(expected)+1 {
+			t.Errorf("unexpected connection keys: %v", connection)
+		}
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(voiceAgentWebsocketJSON))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	token := "tok_live_123"
+	agent, err := client.Voice.Agents.Create(context.Background(), &CreateVoiceAgentRequest{
+		Name: "Own agent",
+		Kind: VoiceAgentKindWebsocket,
+		Connection: &VoiceAgentConnectionRequest{
+			URL:              "wss://agent.example.com/calls",
+			AudioFormat:      VoiceAgentAudioFormatPcm16At24000,
+			AuthToken:        &token,
+			CustomParameters: map[string]string{"tenant": "acme"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if agent.Kind != VoiceAgentKindWebsocket || !agent.HasSigningSecret || agent.SigningSecret != "whsec_byo_0123456789abcdef" {
+		t.Errorf("unexpected Kind/HasSigningSecret/SigningSecret %q/%v/%q", agent.Kind, agent.HasSigningSecret, agent.SigningSecret)
+	}
+	c := agent.Connection
+	if c == nil {
+		t.Fatal("expected a Connection")
+	}
+	if c.URL != "wss://agent.example.com/calls" || c.AudioFormat != VoiceAgentAudioFormatPcm16At24000 || !c.HasAuthToken || c.CustomParameters["tenant"] != "acme" {
+		t.Errorf("unexpected Connection %+v", c)
+	}
+}
+
+func TestVoiceAgentsCreate_ByoNotEnabled(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"error":"byo_agents_not_enabled","message":"Bring-your-own agents aren't switched on for this workspace."}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	_, err := client.Voice.Agents.Create(context.Background(), &CreateVoiceAgentRequest{
+		Name:       "Own agent",
+		Kind:       VoiceAgentKindCustomLLM,
+		Connection: &VoiceAgentConnectionRequest{BaseURL: "https://llm.example.com/v1", Model: "my-model"},
+	})
+	sendlyErr, ok := err.(*SendlyError)
+	if !ok {
+		t.Fatalf("expected *SendlyError, got %T", err)
+	}
+	if sendlyErr.StatusCode != http.StatusForbidden || sendlyErr.Code != VoiceErrorCodeByoAgentsNotEnabled {
+		t.Errorf("unexpected error %d/%q", sendlyErr.StatusCode, sendlyErr.Code)
+	}
+}
+
+func TestVoiceAgentsUpdate_ConnectionSecretsAndRotation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PATCH" || r.URL.Path != "/voice/agents/4d5e6f70-8192-4a3b-b5c6-d7e8f90a1b2c" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		var raw map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(raw) != 3 || string(raw["kind"]) != `"sip"` || string(raw["rotateSigningSecret"]) != "true" {
+			t.Errorf("expected kind, connection and rotateSigningSecret, got %v", raw)
+		}
+		var connection map[string]json.RawMessage
+		if err := json.Unmarshal(raw["connection"], &connection); err != nil {
+			t.Fatalf("connection: %v", err)
+		}
+		expected := map[string]string{
+			"uri":             `"sips:+15125550100@sip.example.com"`,
+			"transport":       `"tls"`,
+			"mediaEncryption": `"require"`,
+			"username":        `"desk"`,
+			"password":        "null",
+			"headers":         "{}",
+		}
+		for key, want := range expected {
+			if got := string(connection[key]); got != want {
+				t.Errorf("expected connection.%s=%s, got %s", key, want, got)
+			}
+		}
+		if len(connection) != len(expected) {
+			t.Errorf("unexpected connection keys: %v", connection)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{
+			"id": "4d5e6f70-8192-4a3b-b5c6-d7e8f90a1b2c", "object": "voice_agent", "name": "Own agent", "enabled": true,
+			"kind": "sip",
+			"connection": {"uri": "sips:+15125550100@sip.example.com", "transport": "tls", "mediaEncryption": "require",
+				"username": "desk", "hasPassword": false, "headers": {}},
+			"hasSigningSecret": true, "signingSecret": "whsec_byo_rotated",
+			"voice": "ashley", "voiceLabel": "Ashley (US, warm)", "language": "en-US", "greeting": "", "instructions": "",
+			"tools": {"sendSms": false, "transferTo": null}, "canSendSms": true, "callsHandled": 3, "avgDurationSecs": 40,
+			"createdAt": "2026-11-13T17:00:00.000Z", "updatedAt": "2026-11-13T18:00:00.000Z"
+		}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	username := "desk"
+	removePassword := ""
+	agent, err := client.Voice.Agents.Update(context.Background(), "4d5e6f70-8192-4a3b-b5c6-d7e8f90a1b2c", &UpdateVoiceAgentRequest{
+		Kind: VoiceAgentKindSip,
+		Connection: &VoiceAgentConnectionRequest{
+			URI:             "sips:+15125550100@sip.example.com",
+			Transport:       VoiceAgentSipTransportTLS,
+			MediaEncryption: VoiceAgentSipMediaEncryptionRequire,
+			Username:        &username,
+			Password:        &removePassword,
+			Headers:         map[string]string{},
+		},
+		RotateSigningSecret: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if agent.Kind != VoiceAgentKindSip || agent.SigningSecret != "whsec_byo_rotated" {
+		t.Errorf("unexpected Kind/SigningSecret %q/%q", agent.Kind, agent.SigningSecret)
+	}
+	c := agent.Connection
+	if c == nil || c.URI != "sips:+15125550100@sip.example.com" || c.Transport != VoiceAgentSipTransportTLS ||
+		c.MediaEncryption != VoiceAgentSipMediaEncryptionRequire || c.Username == nil || *c.Username != "desk" || c.HasPassword {
+		t.Errorf("unexpected Connection %+v", c)
+	}
+}
+
+func TestVoiceAgentsUpdate_OmittedSecretsAndFalseRotationAreNotSent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := decodeRequestBody(t, r)
+		if len(body) != 1 {
+			t.Errorf("expected only connection, got %v", body)
+		}
+		connection, ok := body["connection"].(map[string]interface{})
+		if !ok || len(connection) != 1 || connection["model"] != "my-model-v2" {
+			t.Errorf("expected connection with only model, got %v", body["connection"])
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(voiceAgentWebsocketJSON))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-api-key", WithBaseURL(server.URL))
+	if _, err := client.Voice.Agents.Update(context.Background(), "4d5e6f70-8192-4a3b-b5c6-d7e8f90a1b2c", &UpdateVoiceAgentRequest{
+		Connection:          &VoiceAgentConnectionRequest{Model: "my-model-v2"},
+		RotateSigningSecret: false,
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestVoiceAgent_DecodesCustomLLMConnectionAndSendlyDefaults(t *testing.T) {
+	var custom VoiceAgent
+	if err := json.Unmarshal([]byte(`{"id":"a","object":"voice_agent","kind":"custom_llm","hasSigningSecret":true,
+		"connection":{"baseUrl":"https://llm.example.com/v1","model":"my-model","headerNames":["X-Tenant"],"hasApiKey":true}}`), &custom); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if custom.Kind != VoiceAgentKindCustomLLM || custom.SigningSecret != "" || custom.Connection == nil {
+		t.Fatalf("unexpected agent %+v", custom)
+	}
+	c := custom.Connection
+	if c.BaseURL != "https://llm.example.com/v1" || c.Model != "my-model" || len(c.HeaderNames) != 1 || c.HeaderNames[0] != "X-Tenant" || !c.HasAPIKey {
+		t.Errorf("unexpected Connection %+v", c)
+	}
+
+	var sendly VoiceAgent
+	if err := json.Unmarshal([]byte(voiceAgentJSON), &sendly); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if sendly.Connection != nil || sendly.HasSigningSecret {
+		t.Errorf("expected no Connection or signing secret, got %+v", sendly)
+	}
+
+	var future VoiceAgent
+	if err := json.Unmarshal([]byte(`{"id":"b","kind":"future_kind","connection":null,"hasSigningSecret":false}`), &future); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if future.Kind != "future_kind" {
+		t.Errorf("expected an unknown kind to decode as itself, got %q", future.Kind)
 	}
 }

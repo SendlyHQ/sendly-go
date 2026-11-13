@@ -86,8 +86,8 @@ Before sending live SMS messages, you need:
 
 Some features refuse a test key outright rather than simulating: RCS sends
 (`403 rcs_requires_live_key`), WhatsApp sends and connections
-(`403 whatsapp_requires_live_key`), and `Calls.Create` / `Calls.Hangup`
-(`403 live_key_required`).
+(`403 whatsapp_requires_live_key`), and `Calls.Create` / `Calls.Hangup` /
+`Calls.Transfer` (`403 live_key_required`).
 
 ## Configuration
 
@@ -2014,8 +2014,9 @@ Place phone calls that one of your AI agents handles, follow them while they
 ring and after they end, hang up early, and download recordings. Create
 agents and switch voice on for the number you call from in code (see
 [Configure voice](#configure-voice)) or in the dashboard; for outbound calls
-the number also needs a registered emergency address. `Create` and `Hangup`
-need a live API key with the `calls:write` scope; the reads need `calls:read`.
+the number also needs a registered emergency address. `Create`, `Hangup` and
+`Transfer` need a live API key with the `calls:write` scope; the reads need
+`calls:read`.
 
 Calls are billed per started minute from your prepaid credits: 2 credits a
 minute outbound, plus 8 a minute while an AI agent is on the line (so 10 for a
@@ -2083,6 +2084,12 @@ if calls.Pagination.HasMore {
 // that already ended is returned unchanged.
 call, err = client.Calls.Hangup(ctx, call.ID)
 
+// Transfer the caller on an incoming phone call. It answers at once with
+// Transfer.Status pending; Get the call for the outcome. Pass nil to use the
+// agent's transfer number; any other number needs calling out switched on.
+call, err = client.Calls.Transfer(ctx, call.ID, &sendly.TransferCallRequest{To: "+15125550199"})
+fmt.Println(call.Transfer.Status) // pending
+
 // Download the recording once it is ready. The URL is signed and valid for
 // five minutes; fetch again after ExpiresAt for a fresh one.
 rec, err := client.Calls.Recording(ctx, call.ID)
@@ -2099,6 +2106,13 @@ and `Metadata` round-trip alongside `HangupClass` and `CreditsCharged`.
 Calls and call webhooks carry `Channel`: `"phone"`, `"whatsapp"` or
 `"browser"` (`sendly.CallChannel`; a value added later decodes as itself).
 Inbound WhatsApp calls may still read `"phone"` for now.
+
+Calls also carry `AgentKind` (the kind of agent that answered, nil when none
+did; filter on it with `ListCallsRequest.AgentKind`), `AgentFallback` (true
+when your own agent couldn't be reached, so Sendly said a short line and
+transferred the caller or took a message) and `Transfer` (the latest
+transfer, nil when there was none). Once the caller is handed over, the call
+ends `completed` with `HangupClass` `transferred`.
 
 Recordings of agent calls are dual-channel: the agent is on the left channel
 and the other party on the right.
@@ -2223,9 +2237,52 @@ set, wins: false switches voice off whatever the mode, and true with
 `sendly.VoiceModeNone` rings the dashboard. A pointer to an empty `AgentID`
 clears the stored agent. `RegisterEmergencyAddress` is not retried automatically on a
 5xx such as `carrier_refused`, because every attempt registers the address
-anew. An agent's `TransferTo` number is stored
-but calls are not transferred to it: when a caller asks for a person, the
-agent offers to pass a message on and takes their details.
+anew. An agent's `TransferTo` is the number it transfers a caller to when
+asked for a person, and the number `Calls.Transfer` uses when no `To` is
+given.
+
+### Bring your own agent
+
+An agent's `Kind` says who answers its calls: `sendly.VoiceAgentKindSendly`
+(the default, replies written from the agent's instructions), or one of your
+own: `VoiceAgentKindCustomLLM` (Sendly listens and speaks, your chat
+completions endpoint writes each reply), `VoiceAgentKindSip` (Sendly connects
+the caller to your SIP address) or `VoiceAgentKindWebsocket` (Sendly streams
+the call audio to your `wss://` server). SIP and WebSocket agents answer
+incoming calls only. Your own agents need the workspace's
+bring-your-own-agent feature, or the API answers `403 byo_agents_not_enabled`
+(`sendly.VoiceErrorCodeByoAgentsNotEnabled`).
+
+```go
+apiKey := "sk-your-model-key"
+agent, err := client.Voice.Agents.Create(ctx, &sendly.CreateVoiceAgentRequest{
+    Name: "Own model",
+    Kind: sendly.VoiceAgentKindCustomLLM,
+    Connection: &sendly.VoiceAgentConnectionRequest{
+        BaseURL: "https://llm.example.com/v1", // Sendly POSTs {BaseURL}/chat/completions
+        Model:   "my-model",
+        APIKey:  &apiKey,
+    },
+})
+// Save it now; it is never shown again. Sendly signs every request to your
+// agent with it in X-Sendly-Signature (t=<unix>,v1=<hex HMAC-SHA256>).
+fmt.Println(agent.SigningSecret)
+
+// Change the model and remove the saved key (a pointer to "" sends null),
+// and make a new signing secret. The old one stops working at once.
+noKey := ""
+agent, err = client.Voice.Agents.Update(ctx, agent.ID, &sendly.UpdateVoiceAgentRequest{
+    Connection:          &sendly.VoiceAgentConnectionRequest{Model: "my-model-v2", APIKey: &noKey},
+    RotateSigningSecret: true,
+})
+fmt.Println(agent.SigningSecret)
+```
+
+Responses carry `Connection` without its secrets (`HasAPIKey`, `HasPassword`,
+`HasAuthToken` say whether one is saved) and `HasSigningSecret`. On an update
+with the same `Kind`, the connection is merged into the saved one: a secret
+left nil is kept. Switching `Kind` to `sendly.VoiceAgentKindSendly` removes
+the connection and the signing secret.
 
 ## Error Handling
 
